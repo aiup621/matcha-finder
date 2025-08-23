@@ -12,3 +12,9 @@ service_account.json
 # ツール設定
 .vscode/
 .idea/
+
+# backups & logs
+.env*
+*.bak*
+logs/
+*.log
