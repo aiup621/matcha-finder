@@ -1,0 +1,17 @@
+# search_google.py
+import os, requests
+CSE_ENDPOINT = "https://www.googleapis.com/customsearch/v1"
+BLOCKLIST_DOMAINS = [
+    "yelp.", "tripadvisor.", "ubereats.", "doordash.", "grubhub.",
+    "facebook.", "opentable.", "resy.", "postmates."
+]
+def search_candidates(query, num=10):
+    params = {"key": os.environ["GOOGLE_API_KEY"], "cx": os.environ["GOOGLE_CX"], "q": query, "num": num, "lr": "lang_en"}
+    r = requests.get(CSE_ENDPOINT, params=params, timeout=30); r.raise_for_status()
+    links=[]
+    for item in r.json().get("items", []):
+        link=item.get("link","")
+        if not link: continue
+        if any(d in link for d in BLOCKLIST_DOMAINS): continue
+        links.append(link)
+    return links

@@ -1,0 +1,12 @@
+requests
+python-dotenv
+playwright
+beautifulsoup4
+lxml
+rapidfuzz
+pytesseract
+Pillow
+PyPDF2
+gspread
+google-auth
+tqdm

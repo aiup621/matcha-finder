@@ -1,0 +1,280 @@
+﻿from tqdm.auto import tqdm
+
+# ==== defaults shim (auto-injected) ====
+try:
+    SEARCH_NUM
+except NameError:
+    import os as _os
+    SEARCH_NUM = int(_os.getenv("SEARCH_NUM", "10"))  # 1回の検索で拾う件数の目安
+
+try:
+    TARGET_NEW
+except NameError:
+    import os as _os
+    TARGET_NEW = int(_os.getenv("TARGET_NEW", "100"))  # 収集目標件数（既定100）
+# ==== end defaults ====
+# ==== search shim (auto-injected) ====
+try:
+    # もし search_google.py にジェネレータ版があればそれを使う
+    from search_google import search_candidates_iter  # preferred
+except Exception:
+    # 無ければ従来の単発検索にフォールバック
+    from search_google import search_candidates
+    def search_candidates_iter(q, num=10, start=None, max_pages=1):
+        # start, max_pages は無視して、最低限動くようにする
+        for u in search_candidates(q, num=num):
+            yield u
+# ==== end search shim ====
+# ==== safe defaults (auto-injected, idempotent) ====
+import os
+try:
+    TARGET_NEW
+except NameError:
+    TARGET_NEW = int(os.getenv("TARGET_NEW","100"))
+
+if "START_STEPS" not in globals():
+    START_STEPS = ["menu","matcha","matcha latte","抹茶","抹茶 ラテ"]
+
+if "QUERY_TEMPLATES_ROUNDS" not in globals():
+    QUERY_TEMPLATES_ROUNDS = [
+        ['"matcha latte" cafe {state} menu', '"matcha" cafe {state} menu'],
+        ['matcha dessert cafe {state}', '抹茶 カフェ {state} メニュー'],
+        ['"matcha latte" cafe {state}', 'matcha cafe {state}'],
+    ]
+
+if "STATES" not in globals():
+    try:
+        STATES = US_STATES
+    except NameError:
+        US_STATES = ["California","Washington","New York","Texas","Oregon","Illinois"]
+        STATES = US_STATES
+# ==== end defaults ====
+US_STATES = ["California","Washington","New York","Texas","Oregon","Illinois"]
+STATES = US_STATES
+# ==== auto-injected defaults (safe) ====
+try:
+    US_STATES  # 存在チェック
+except NameError:
+    US_STATES = ["California","Washington","New York","Texas","Oregon","Illinois"]
+
+# ラウンドごとの検索クエリ雛形（{state} を差し込み）
+QUERY_TEMPLATES_ROUNDS = [
+    [
+        'site:menu "matcha" cafe {state}',
+        '"matcha latte" cafe {state} menu',
+        'matcha site:cafe {state} "menu" -starbucks -dunkin -peets'
+    ],
+    [
+        'matcha cafe {state} menu',
+        '"matcha" "menu" {state}',
+        'matcha dessert cafe {state}'
+    ],
+    [
+        '抹茶 ラテ カフェ {state}',
+        '抹茶 カフェ {state} メニュー'
+    ]
+]
+# =======================================
+import os
+TARGET_NEW = int(os.getenv("TARGET_NEW","100"))
+# -*- coding: utf-8 -*-
+import os, logging, re
+from dotenv import load_dotenv
+from search_google import search_candidates
+from crawl_site import fetch_site_safe as fetch_site
+from verify_matcha import verify_matcha
+from rules import is_independent_strict as is_independent, normalize_url, homepage_of, extract_brand_name_v2 as extract_brand_name, instagram_handle, is_recent_enough
+from sheet_io import open_sheet, append_rows_batched, get_existing_official_urls
+
+# ログ設定
+os.makedirs('logs', exist_ok=True)
+logging.basicConfig(
+    filename='logs/pipeline.log',
+    level=logging.INFO,
+    format='%(asctime)s %(levelname)s %(message)s',
+    encoding='utf-8'
+)
+
+EXCLUDE_PATTERNS = r"(no-?reply|career|jobs|recruit|press|media|reservation|booking|order|orders)"
+PRIO1 = r"(owner|founder|ceo|gm|manager|mgr|buyer)"
+PRIO2 = r"(info|hello|contact)"
+PRIO3 = r"(catering|events)"
+
+def is_http_ok(status):
+    try: return int(status) == 200
+    except: return False
+
+def pick_best_email(emails):
+    if not emails: return ""
+    cand = [e.lower() for e in emails if not re.search(EXCLUDE_PATTERNS, e.lower())]
+    for p in (PRIO1, PRIO2, PRIO3):
+        for e in cand:
+            if re.search(p, e): return e
+    return cand[0] if cand else ""
+
+def handle_candidate(src_url, existing_urls, newly_added_urls, out_rows):
+    """1候補を評価して、要件を満たせば out_rows に追記。成功なら True"""
+    home = homepage_of(src_url)
+    if is_delivery_or_portal(home):
+        return False
+
+    norm_home = normalize_url(home)
+    if norm_home in existing_urls or norm_home in newly_added_urls:
+        return False
+
+    # まずトップだけ取得（高速）
+    site_home = fetch_site(home, screenshot_path=None)
+    if not is_http_ok(site_home.get("status")):
+        return False
+
+    # IG（トップに無ければ src 側を掘る）
+    insta = site_home.get("instagram")
+    site_src = None
+    if not insta:
+        site_src = fetch_site(src_url, screenshot_path=None)
+        insta = site_src.get("instagram")
+
+    if not insta:   # IGは必須
+        return False
+
+    # メニューURL（トップ→足りなければsrc）
+    menu_urls = (site_home.get("menus") or [])
+    if not menu_urls and site_src:
+        menu_urls += (site_src.get("menus") or [])
+
+    # 新しさ（まずトップ/メニューだけ）
+    if not is_recent_enough(home, site_home.get("html") or "", insta_html="", menu_urls=menu_urls, days=FRESH_DAYS):
+        # だめならIG HTMLを初めて取りに行く
+        insta_html = ""
+        try:
+            site_ig = fetch_site(insta, screenshot_path=None)
+            insta_html = site_ig.get("html") or ""
+        except:
+            pass
+        if not is_recent_enough(home, site_home.get("html") or "", insta_html=insta_html, menu_urls=menu_urls, days=FRESH_DAYS):
+            return False
+
+    # 抹茶提供の確認
+    how, evidence = verify_matcha(menu_urls, insta, site_home.get("html"))
+    if not how:
+        return False
+
+    # 独立店（チェーン除外）
+    if not is_independent(site_home.get("html")):
+        return False
+
+    # 出力
+    name = (extract_brand_name(site_home.get("html"), home) or "店名不明")[:60]
+    country = "USA"
+    best_email = pick_best_email(site_home.get("emails") or []) or \
+                 pick_best_email((site_src.get("emails") or []) if site_src else [])
+    form_url = (site_home.get("forms")[0] if site_home.get("forms") else
+                (site_src.get("forms")[0] if (site_src and site_src.get("forms")) else ""))
+
+    out_rows.append([name, country, home, insta, best_email, form_url])
+    newly_added_urls.add(norm_home)
+    return True
+
+def main():
+    load_dotenv()
+    ws = open_sheet()
+    existing_urls = get_existing_official_urls(ws)
+    newly_added_urls = set()
+    out_rows, skipped_dupe = [], 0
+    pbar = tqdm(total=1, bar_format="{percentage:3.0f}%", ncols=6, mininterval=0.5, leave=False)
+
+    seen_query_pages = set()  # 同じ (query,start) の再実行を避ける
+    round_idx = 0
+
+    # ====== ここから「指定件数に達するまで」無限拡大 ======
+    while len(out_rows) < TARGET_NEW:
+        # ラウンドごとに語彙テンプレートを切り替え（広げる）
+        templates = QUERY_TEMPLATES_ROUNDS[min(round_idx, len(QUERY_TEMPLATES_ROUNDS)-1)]
+
+        # 州あり→州なしの順に検索幅を広げる
+        state_sets = [STATES, [""]]  # 最後は州なし
+        progress_this_round = 0
+
+        for states in state_sets:
+            for state in states:
+                for tmpl in templates:
+                    q = tmpl.format(state=state).strip()
+                    for start in START_STEPS:
+                        logging.info(f"[探索] {q} | start={start}")
+                        key = f"{q}@@{start}"
+                        if key in seen_query_pages:
+                            continue
+                        seen_query_pages.add(key)
+
+                        # 1ページ分（10件）取得
+                        batch = list(search_candidates_iter(q, num=SEARCH_NUM, start=start, max_pages=1))
+                        pbar.total += len(batch)
+                        for src_url in batch:
+                            # 既出チェック用にホームURLだけ先に正規化
+                            home_norm = normalize_url(homepage_of(src_url))
+                            if home_norm in existing_urls or home_norm in newly_added_urls:
+                                skipped_dupe += 1
+                                continue
+
+                            ok = handle_candidate(src_url, existing_urls, newly_added_urls, out_rows)
+
+
+                            pbar.update(1)
+                            if ok:
+                                pbar.update(1)
+                                progress_this_round += 1
+                                logging.info(f"✓ 追加 {len(out_rows)}/{TARGET_NEW}")
+                                # 目標に達したら即、書き込み＆終了
+                                if len(out_rows) >= TARGET_NEW:
+pbar.n = pbar.total
+pbar.refresh()
+pbar.close()
+                                    append_rows_batched(ws, out_rows)
+                                    logging.info(f"added {len(out_rows)} rows, skipped {skipped_dupe} duplicates")
+                                    return
+        # ラウンドで全く進捗が無ければ、語彙をさらに広げる（次ラウンドへ）
+        # ただし、外部ソースが枯渇している可能性もある点はログで明示
+        if progress_this_round == 0:
+            # これ以上広げても収穫ゼロの兆候 → それでも続ける（次ラウンドへ）
+            pass
+
+        round_idx += 1
+
+    # ループを抜けた場合（通常は return 済み）
+    if out_rows:
+pbar.n = pbar.total
+pbar.refresh()
+pbar.close()
+        append_rows_batched(ws, out_rows)
+if __name__ == "__main__":
+    main()
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

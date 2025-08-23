@@ -1,0 +1,154 @@
+2025-08-17 21:51:22,352 INFO [trace] requests patch: default timeout=15s
+2025-08-17 21:51:22,739 INFO [trace] START pipeline
+2025-08-17 21:51:22,754 INFO [trace] enter open_sheet
+2025-08-17 21:51:24,338 INFO [trace] leave open_sheet (1.58s)
+2025-08-17 21:51:24,338 INFO [trace] enter get_existing_official_urls
+2025-08-17 21:51:24,600 INFO [trace] enter normalize_url
+2025-08-17 21:51:24,600 INFO [trace] leave normalize_url (0.00s)
+2025-08-17 21:51:24,600 INFO [trace] enter normalize_url
+2025-08-17 21:51:24,600 INFO [trace] leave normalize_url (0.00s)
+2025-08-17 21:51:24,600 INFO [trace] enter normalize_url
+2025-08-17 21:51:24,600 INFO [trace] leave normalize_url (0.00s)
+2025-08-17 21:51:24,600 INFO [trace] enter normalize_url
+2025-08-17 21:51:24,602 INFO [trace] leave normalize_url (0.00s)
+2025-08-17 21:51:24,602 INFO [trace] enter normalize_url
+2025-08-17 21:51:24,602 INFO [trace] leave normalize_url (0.00s)
+2025-08-17 21:51:24,602 INFO [trace] enter normalize_url
+2025-08-17 21:51:24,602 INFO [trace] leave normalize_url (0.00s)
+2025-08-17 21:51:24,602 INFO [trace] enter normalize_url
+2025-08-17 21:51:24,602 INFO [trace] leave normalize_url (0.00s)
+2025-08-17 21:51:24,602 INFO [trace] enter normalize_url
+2025-08-17 21:51:24,602 INFO [trace] leave normalize_url (0.00s)
+2025-08-17 21:51:24,603 INFO [trace] enter normalize_url
+2025-08-17 21:51:24,603 INFO [trace] leave normalize_url (0.00s)
+2025-08-17 21:51:24,603 INFO [trace] enter normalize_url
+2025-08-17 21:51:24,603 INFO [trace] leave normalize_url (0.00s)
+2025-08-17 21:51:24,603 INFO [trace] enter normalize_url
+2025-08-17 21:51:24,603 INFO [trace] leave normalize_url (0.00s)
+2025-08-17 21:51:24,603 INFO [trace] enter normalize_url
+2025-08-17 21:51:24,603 INFO [trace] leave normalize_url (0.00s)
+2025-08-17 21:51:24,603 INFO [trace] enter normalize_url
+2025-08-17 21:51:24,603 INFO [trace] leave normalize_url (0.00s)
+2025-08-17 21:51:24,603 INFO [trace] enter normalize_url
+2025-08-17 21:51:24,603 INFO [trace] leave normalize_url (0.00s)
+2025-08-17 21:51:24,603 INFO [trace] enter normalize_url
+2025-08-17 21:51:24,603 INFO [trace] leave normalize_url (0.00s)
+2025-08-17 21:51:24,604 INFO [trace] enter normalize_url
+2025-08-17 21:51:24,604 INFO [trace] leave normalize_url (0.00s)
+2025-08-17 21:51:24,604 INFO [trace] enter normalize_url
+2025-08-17 21:51:24,604 INFO [trace] leave normalize_url (0.00s)
+2025-08-17 21:51:24,604 INFO [trace] enter normalize_url
+2025-08-17 21:51:24,604 INFO [trace] leave normalize_url (0.00s)
+2025-08-17 21:51:24,604 INFO [trace] enter normalize_url
+2025-08-17 21:51:24,604 INFO [trace] leave normalize_url (0.00s)
+2025-08-17 21:51:24,604 INFO [trace] enter normalize_url
+2025-08-17 21:51:24,604 INFO [trace] leave normalize_url (0.00s)
+2025-08-17 21:51:24,604 INFO [trace] enter normalize_url
+2025-08-17 21:51:24,604 INFO [trace] leave normalize_url (0.00s)
+2025-08-17 21:51:24,604 INFO [trace] enter normalize_url
+2025-08-17 21:51:24,604 INFO [trace] leave normalize_url (0.00s)
+2025-08-17 21:51:24,604 INFO [trace] enter normalize_url
+2025-08-17 21:51:24,604 INFO [trace] leave normalize_url (0.00s)
+2025-08-17 21:51:24,605 INFO [trace] enter normalize_url
+2025-08-17 21:51:24,605 INFO [trace] leave normalize_url (0.00s)
+2025-08-17 21:51:24,605 INFO [trace] enter normalize_url
+2025-08-17 21:51:24,605 INFO [trace] leave normalize_url (0.00s)
+2025-08-17 21:51:24,605 INFO [trace] enter normalize_url
+2025-08-17 21:51:24,605 INFO [trace] leave normalize_url (0.00s)
+2025-08-17 21:51:24,605 INFO [trace] enter normalize_url
+2025-08-17 21:51:24,605 INFO [trace] leave normalize_url (0.00s)
+2025-08-17 21:51:24,605 INFO [trace] enter normalize_url
+2025-08-17 21:51:24,605 INFO [trace] leave normalize_url (0.00s)
+2025-08-17 21:51:24,605 INFO [trace] enter normalize_url
+2025-08-17 21:51:24,605 INFO [trace] leave normalize_url (0.00s)
+2025-08-17 21:51:24,605 INFO [trace] enter normalize_url
+2025-08-17 21:51:24,605 INFO [trace] leave normalize_url (0.00s)
+2025-08-17 21:51:24,605 INFO [trace] enter normalize_url
+2025-08-17 21:51:24,605 INFO [trace] leave normalize_url (0.00s)
+2025-08-17 21:51:24,606 INFO [trace] enter normalize_url
+2025-08-17 21:51:24,606 INFO [trace] leave normalize_url (0.00s)
+2025-08-17 21:51:24,606 INFO [trace] enter normalize_url
+2025-08-17 21:51:24,606 INFO [trace] leave normalize_url (0.00s)
+2025-08-17 21:51:24,606 INFO [trace] enter normalize_url
+2025-08-17 21:51:24,606 INFO [trace] leave normalize_url (0.00s)
+2025-08-17 21:51:24,606 INFO [trace] enter normalize_url
+2025-08-17 21:51:24,606 INFO [trace] leave normalize_url (0.00s)
+2025-08-17 21:51:24,606 INFO [trace] enter normalize_url
+2025-08-17 21:51:24,606 INFO [trace] leave normalize_url (0.00s)
+2025-08-17 21:51:24,606 INFO [trace] enter normalize_url
+2025-08-17 21:51:24,606 INFO [trace] leave normalize_url (0.00s)
+2025-08-17 21:51:24,606 INFO [trace] enter normalize_url
+2025-08-17 21:51:24,606 INFO [trace] leave normalize_url (0.00s)
+2025-08-17 21:51:24,606 INFO [trace] leave get_existing_official_urls (0.27s)
+2025-08-17 21:51:24,614 INFO [trace] search_candidates_iter start
+2025-08-17 21:51:24,740 INFO [trace] search_candidates_iter done: 0 in 0.13s
+2025-08-17 21:51:24,740 INFO [trace] search_candidates_iter start
+2025-08-17 21:51:24,849 INFO [trace] search_candidates_iter done: 0 in 0.11s
+2025-08-17 21:51:24,849 INFO [trace] search_candidates_iter start
+2025-08-17 21:51:24,975 INFO [trace] search_candidates_iter done: 0 in 0.13s
+2025-08-17 21:51:24,975 INFO [trace] search_candidates_iter start
+2025-08-17 21:51:25,116 INFO [trace] search_candidates_iter done: 0 in 0.14s
+2025-08-17 21:51:25,117 INFO [trace] search_candidates_iter start
+2025-08-17 21:51:25,222 INFO [trace] search_candidates_iter done: 0 in 0.11s
+2025-08-17 21:51:25,223 INFO [trace] search_candidates_iter start
+2025-08-17 21:51:25,327 INFO [trace] search_candidates_iter done: 0 in 0.10s
+2025-08-17 21:51:25,327 INFO [trace] search_candidates_iter start
+2025-08-17 21:51:25,432 INFO [trace] search_candidates_iter done: 0 in 0.10s
+2025-08-17 21:51:25,432 INFO [trace] search_candidates_iter start
+2025-08-17 21:51:25,661 INFO [trace] search_candidates_iter done: 0 in 0.23s
+2025-08-17 21:51:25,661 INFO [trace] search_candidates_iter start
+2025-08-17 21:51:25,809 INFO [trace] search_candidates_iter done: 0 in 0.15s
+2025-08-17 21:51:25,809 INFO [trace] search_candidates_iter start
+2025-08-17 21:51:25,932 INFO [trace] search_candidates_iter done: 0 in 0.12s
+2025-08-17 21:51:25,932 INFO [trace] search_candidates_iter start
+2025-08-17 21:51:26,055 INFO [trace] search_candidates_iter done: 0 in 0.12s
+2025-08-17 21:51:26,055 INFO [trace] search_candidates_iter start
+2025-08-17 21:51:26,175 INFO [trace] search_candidates_iter done: 0 in 0.12s
+2025-08-17 21:51:26,175 INFO [trace] search_candidates_iter start
+2025-08-17 21:51:26,323 INFO [trace] search_candidates_iter done: 0 in 0.15s
+2025-08-17 21:51:26,323 INFO [trace] search_candidates_iter start
+2025-08-17 21:51:26,603 INFO [trace] search_candidates_iter done: 0 in 0.28s
+2025-08-17 21:51:26,603 INFO [trace] search_candidates_iter start
+2025-08-17 21:51:26,726 INFO [trace] search_candidates_iter done: 0 in 0.12s
+2025-08-17 21:51:26,727 INFO [trace] search_candidates_iter start
+2025-08-17 21:51:26,857 INFO [trace] search_candidates_iter done: 0 in 0.13s
+2025-08-17 21:51:26,857 INFO [trace] search_candidates_iter start
+2025-08-17 21:51:26,960 INFO [trace] search_candidates_iter done: 0 in 0.10s
+2025-08-17 21:51:26,960 INFO [trace] search_candidates_iter start
+2025-08-17 21:51:27,078 INFO [trace] search_candidates_iter done: 0 in 0.12s
+2025-08-17 21:51:27,078 INFO [trace] search_candidates_iter start
+2025-08-17 21:51:27,179 INFO [trace] search_candidates_iter done: 0 in 0.10s
+2025-08-17 21:51:27,179 INFO [trace] search_candidates_iter start
+2025-08-17 21:51:27,285 INFO [trace] search_candidates_iter done: 0 in 0.11s
+2025-08-17 21:51:27,286 INFO [trace] search_candidates_iter start
+2025-08-17 21:51:27,396 INFO [trace] search_candidates_iter done: 0 in 0.11s
+2025-08-17 21:51:27,396 INFO [trace] search_candidates_iter start
+2025-08-17 21:51:27,593 INFO [trace] search_candidates_iter done: 0 in 0.20s
+2025-08-17 21:51:27,594 INFO [trace] search_candidates_iter start
+2025-08-17 21:51:27,704 INFO [trace] search_candidates_iter done: 0 in 0.11s
+2025-08-17 21:51:27,704 INFO [trace] search_candidates_iter start
+2025-08-17 21:51:27,816 INFO [trace] search_candidates_iter done: 0 in 0.11s
+2025-08-17 21:51:27,817 INFO [trace] search_candidates_iter start
+2025-08-17 21:51:27,937 INFO [trace] search_candidates_iter done: 0 in 0.12s
+2025-08-17 21:51:27,937 INFO [trace] search_candidates_iter start
+2025-08-17 21:51:28,047 INFO [trace] search_candidates_iter done: 0 in 0.11s
+2025-08-17 21:51:28,047 INFO [trace] search_candidates_iter start
+2025-08-17 21:51:28,162 INFO [trace] search_candidates_iter done: 0 in 0.11s
+2025-08-17 21:51:28,163 INFO [trace] search_candidates_iter start
+2025-08-17 21:51:28,271 INFO [trace] search_candidates_iter done: 0 in 0.11s
+2025-08-17 21:51:28,271 INFO [trace] search_candidates_iter start
+2025-08-17 21:51:28,388 INFO [trace] search_candidates_iter done: 0 in 0.12s
+2025-08-17 21:51:28,388 INFO [trace] search_candidates_iter start
+2025-08-17 21:51:28,599 INFO [trace] search_candidates_iter done: 0 in 0.21s
+2025-08-17 21:51:28,600 INFO [trace] search_candidates_iter start
+2025-08-17 21:51:28,720 INFO [trace] search_candidates_iter done: 0 in 0.12s
+2025-08-17 21:51:28,720 INFO [trace] search_candidates_iter start
+2025-08-17 21:51:28,848 INFO [trace] search_candidates_iter done: 0 in 0.13s
+2025-08-17 21:51:28,849 INFO [trace] search_candidates_iter start
+2025-08-17 21:51:28,959 INFO [trace] search_candidates_iter done: 0 in 0.11s
+2025-08-17 21:51:28,960 INFO [trace] search_candidates_iter start
+2025-08-17 21:51:29,071 INFO [trace] search_candidates_iter done: 0 in 0.11s
+2025-08-17 21:51:29,071 INFO [trace] search_candidates_iter start
+2025-08-17 21:51:29,211 INFO [trace] search_candidates_iter done: 0 in 0.14s
+2025-08-17 21:51:29,211 INFO [trace] search_candidates_iter start
+2025-08-17 21:51:29,332 INFO [trace] search_candidates_iter done: 0 in 0.12s

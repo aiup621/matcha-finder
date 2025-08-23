@@ -1,0 +1,23 @@
+# rules.py
+import re
+from urllib.parse import urlparse, urlunparse
+from bs4 import BeautifulSoup
+
+def normalize_url(u: str) -> str:
+    if not u: return ""
+    u = u.strip()
+    try:
+        p = urlparse(u if "://" in u else f"https://{u}")
+        scheme = "https" if p.scheme in ("http","https") else (p.scheme or "https")
+        netloc = (p.netloc or "").lower()
+        if netloc.startswith("www."): netloc = netloc[4:]
+        path = (p.path or "/").rstrip("/") or "/"
+        return urlunparse((scheme, netloc, path, "", "", ""))
+    except Exception:
+        return u.strip()
+
+def is_independent(html):
+    soup = BeautifulSoup(html or "", "lxml")
+    text = soup.get_text(" ", strip=True)
+    hits = re.findall(r"\b[A-Z][a-z]+,\s?(AL|AK|AZ|AR|CA|CO|CT|DE|FL|GA|HI|IA|ID|IL|IN|KS|KY|LA|MA|MD|ME|MI|MN|MO|MS|MT|NC|ND|NE|NH|NJ|NM|NV|NY|OH|OK|OR|PA|RI|SC|SD|TN|TX|UT|VA|VT|WA|WI|WV|DC)\b", text)
+    return len(set(hits)) <= 5

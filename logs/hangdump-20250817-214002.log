@@ -1,0 +1,21 @@
+Timeout (0:00:45)!
+Thread 0x00000b04 (most recent call first):
+  File "C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.13_3.13.2032.0_x64__qbz5n2kfra8p0\Lib\threading.py", line 363 in wait
+  File "C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.13_3.13.2032.0_x64__qbz5n2kfra8p0\Lib\threading.py", line 659 in wait
+  File "C:\Users\dssmb\OneDrive\\u30c7\u30b9\u30af\u30c8\u30c3\u30d7\matcha-finder\.venv\Lib\site-packages\tqdm\_monitor.py", line 60 in run
+  File "C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.13_3.13.2032.0_x64__qbz5n2kfra8p0\Lib\threading.py", line 1043 in _bootstrap_inner
+  File "C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.13_3.13.2032.0_x64__qbz5n2kfra8p0\Lib\threading.py", line 1014 in _bootstrap
+
+Thread 0x00005320 (most recent call first):
+  File "C:\Users\dssmb\OneDrive\\u30c7\u30b9\u30af\u30c8\u30c3\u30d7\matcha-finder\.venv\Lib\site-packages\tqdm\utils.py"Windows fatal exception: access violation
+
+Thread 0x00000b04 (most recent call first):
+  File "C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.13_3.13.2032.0_x64__qbz5n2kfra8p0\Lib\threading.py", line 363 in wait
+  File "C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.13_3.13.2032.0_x64__qbz5n2kfra8p0\Lib\threading.py", line 659 in wait
+  File "C:\Users\dssmb\OneDrive\\u30c7\u30b9\u30af\u30c8\u30c3\u30d7\matcha-finder\.venv\Lib\site-packages\tqdm\_monitor.py", line 60 in run
+  File "C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.13_3.13.2032.0_x64__qbz5n2kfra8p0\Lib\threading.py", line 1043 in _bootstrap_inner
+  File "C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.13_3.13.2032.0_x64__qbz5n2kfra8p0\Lib\threading.py", line 1014 in _bootstrap
+
+Thread 0x00005320 (most recent call first):
+  File "C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.13_3.13.2032.0_x64__qbz5n2kfra8p0\Lib\logging\__init__.py"Windows fatal exception: access violation
+

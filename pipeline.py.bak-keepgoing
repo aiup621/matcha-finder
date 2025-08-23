@@ -1,0 +1,146 @@
+﻿import os, re
+from dotenv import load_dotenv
+from search_google import search_candidates
+from crawl_site import fetch_site_safe as fetch_site
+from verify_matcha import verify_matcha
+from rules import (
+    is_independent_strict as is_independent,
+    normalize_url, homepage_of, extract_brand_name,
+    instagram_handle, is_recent_enough, is_delivery_or_portal
+)
+from sheet_io import open_sheet, append_rows_batched, get_existing_official_urls
+
+# ---- 設定 ----
+TARGET_NEW = int(os.getenv("TARGET_NEW", "100"))  # 既定は100。テスト時は env で 10 に上書き可
+FRESH_DAYS = int(os.getenv("FRESH_WITHIN_DAYS", "730"))
+
+# 段階1（狭く速く）→段階2（州拡大）→段階3（クエリ拡大）→段階4（州なし広域）
+STATES_STAGE1 = ["California","Washington","New York","Texas","Oregon","Illinois"]
+STATES_STAGE2 = STATES_STAGE1 + ["Florida","Colorado","Massachusetts","Arizona","Pennsylvania","Nevada","Georgia","Hawaii","Virginia","New Jersey","Minnesota","Maryland","North Carolina","Ohio","Michigan","Tennessee","Utah","Wisconsin"]
+
+QUERIES_STAGE1 = ['"matcha latte" cafe {state} menu']
+QUERIES_STAGE2 = ['"matcha latte" cafe {state}', 'matcha cafe {state} menu', 'matcha latte {state} menu']
+QUERIES_STAGE3 = ['"matcha latte" cafe menu', 'matcha cafe "menu"']  # 州なし（最後の手段）
+
+EXCLUDE_PATTERNS = r"(no-?reply|career|jobs|recruit|press|media|reservation|booking|order|orders)"
+PRIO1 = r"(owner|founder|ceo|gm|manager|mgr|buyer)"
+PRIO2 = r"(info|hello|contact)"
+PRIO3 = r"(catering|events)"
+
+def is_http_ok(status):
+    try: return int(status) == 200
+    except: return False
+
+def pick_best_email(emails):
+    if not emails: return ""
+    cand = [e.lower() for e in emails if not re.search(EXCLUDE_PATTERNS, e.lower())]
+    for p in (PRIO1, PRIO2, PRIO3):
+        for e in cand:
+            if re.search(p, e): return e
+    return cand[0] if cand else ""
+
+def handle_candidate(src_url, ws, existing_urls, newly_added_urls, out_rows):
+    """1件の検索結果を評価して、要件を満たせば out_rows に追記。追記できたら True を返す。"""
+    # 公式トップ推定
+    home = homepage_of(src_url)
+    if is_delivery_or_portal(home):  # 公式でなさそうなドメインは早期除外
+        return False
+
+    norm_home = normalize_url(home)
+    if norm_home in existing_urls or norm_home in newly_added_urls:
+        return False
+
+    # まずトップだけ取得（高速化）
+    site_home = fetch_site(home, screenshot_path=None)
+    if not is_http_ok(site_home.get("status")):
+        return False
+
+    # IG（トップで無ければ、初めて必要になった時だけ src 側を掘る）
+    insta = site_home.get("instagram")
+    site_src = None
+    if not insta:
+        site_src = fetch_site(src_url, screenshot_path=None)
+        insta = site_src.get("instagram")
+
+    if not insta:  # IG必須
+        return False
+
+    # メニューURL（まずはトップから、足りなければ src 補完）
+    menu_urls = (site_home.get("menus") or [])
+    if not menu_urls and site_src:
+        menu_urls += (site_src.get("menus") or [])
+
+    # 新しさ（2年以内）— まずトップ/メニューだけで判定
+    if not is_recent_enough(home, site_home.get("html") or "", insta_html="", menu_urls=menu_urls, days=FRESH_DAYS):
+        # ダメならIGページHTMLを初めて取得して追検証（重いのでこのタイミングだけ）
+        try:
+            site_ig = fetch_site(insta, screenshot_path=None)
+            insta_html = site_ig.get("html") or ""
+        except:
+            insta_html = ""
+        if not is_recent_enough(home, site_home.get("html") or "", insta_html=insta_html, menu_urls=menu_urls, days=FRESH_DAYS):
+            return False
+
+    # 抹茶提供確認
+    how, evidence = verify_matcha(menu_urls, insta, site_home.get("html"))
+    if not how:
+        return False
+
+    # チェーン除外（独立店）
+    if not is_independent(site_home.get("html")):
+        return False
+
+    # 公式名・連絡先
+    name = (extract_brand_name(site_home.get("html"), home) or "店名不明")[:60]
+    country = "USA"
+    best_email = pick_best_email(site_home.get("emails") or [])
+    if not best_email and site_src:
+        best_email = pick_best_email(site_src.get("emails") or [])
+    form_url = (site_home.get("forms")[0] if site_home.get("forms") else
+                (site_src.get("forms")[0] if (site_src and site_src.get("forms")) else ""))
+
+    out_rows.append([name, country, home, best_email, form_url, insta])
+    newly_added_urls.add(norm_home)
+    return True
+
+def main():
+    load_dotenv()
+    ws = open_sheet()
+    existing_urls = get_existing_official_urls(ws)
+    newly_added_urls = set()
+    out_rows, skipped_dupe = [], 0
+
+    # 段階的に探索を拡大し、TARGET_NEW に届いたら即終了
+    rounds = [
+        (STATES_STAGE1, QUERIES_STAGE1),
+        (STATES_STAGE2, QUERIES_STAGE1),
+        (STATES_STAGE2, QUERIES_STAGE2),
+        ([""],          QUERIES_STAGE3),  # 州なし広域（最後）
+    ]
+
+    for states, queries in rounds:
+        for state in states:
+            for tmpl in queries:
+                q = tmpl.format(state=state).strip()
+                for src_url in search_candidates(q, num=10):
+                    # 正式追加できたらカウント
+                    added_before = len(out_rows)
+                    ok = handle_candidate(src_url, ws, existing_urls, newly_added_urls, out_rows)
+                    if not ok:
+                        # 正規化ホームURLが既出だった場合は重複カウントに含める
+                        home = normalize_url(homepage_of(src_url))
+                        if home in existing_urls or home in newly_added_urls: skipped_dupe += 1
+                    if len(out_rows) >= TARGET_NEW:
+                        append_rows_batched(ws, out_rows)
+                        print(f"added {len(out_rows)} rows, skipped {skipped_dupe} duplicates")
+                        return
+        # 次の段階へ（まだ足りない）
+
+    # 全段階を回っても不足なら、そのぶんだけで終了（外的に候補不足）
+    if out_rows:
+        append_rows_batched(ws, out_rows)
+        print(f"added {len(out_rows)} rows, skipped {skipped_dupe} duplicates (pool exhausted before TARGET_NEW)")
+    else:
+        print(f"no new rows, skipped {skipped_dupe} duplicates (pool exhausted)")
+if __name__ == "__main__":
+    main()

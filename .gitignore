@@ -1,0 +1,14 @@
+﻿# Python
+__pycache__/
+*.pyc
+
+# 秘密・ローカル状態
+.env
+service_account.json
+.cse_usage.json
+.seen_roots.json
+.query_yield.json
+
+# ツール設定
+.vscode/
+.idea/
