@@ -1,0 +1,43 @@
+name: Run matcha (3 items)
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_new:
+        description: "How many new leads to crawl"
+        default: "3"
+        required: true
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    env:
+      GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+      GOOGLE_CX: ${{ secrets.GOOGLE_CX }}
+      SHEET_ID: ${{ secrets.SHEET_ID }}
+      TARGET_NEW: ${{ github.event.inputs.target_new }}
+      DEBUG: "1"                      # 詳細ログ（不要なら消してOK）
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install deps
+        run: pip install -r requirements_smart.txt
+
+      - name: Write service account json
+        # SecretのSERVICE_ACCOUNT_JSONをファイル化
+        run: |
+          python - <<'PY'
+          import os, pathlib
+          p = pathlib.Path('service_account.json')
+          p.write_text(os.environ['SERVICE_ACCOUNT_JSON'])
+          print('wrote', p, 'bytes=', p.stat().st_size)
+          PY
+        env:
+          SERVICE_ACCOUNT_JSON: ${{ secrets.SERVICE_ACCOUNT_JSON }}
+
+      - name: Run pipeline (up to 3)
+        run: python -u pipeline_smart.py
