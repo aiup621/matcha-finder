@@ -18,3 +18,9 @@ service_account.json
 *.bak*
 logs/
 *.log
+
+# backups & logs
+.env*
+*.bak*
+logs/
+*.log
