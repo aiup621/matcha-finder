@@ -14,7 +14,9 @@ BLOCK_DOMAINS = {
     "facebook.com","m.facebook.com","instagram.com","tiktok.com","reddit.com","vogue.com",
     "theinfatuation.com","eater.com","la.eater.com","ny.eater.com","toasttab.com","square.site",
     "linktr.ee","google.com","maps.google.com","order.online","order.alfred.la",
-    "vivinavi.com","vividnavigation.com"
+    "vivinavi.com","vividnavigation.com","uber.com","pos.chowbus.com","chowbus.com",
+    "fantuanorder.com","appfront.app","mapquest.com","linkedin.com","x.com","amazon.com",
+    "walmart.com"
 }
 
 MATCHA_WORDS = re.compile(r'(matcha|抹茶|green\s*tea\s*latte|ceremonial\s*matcha|iced\s*matcha|dirty\s*matcha)', re.I)

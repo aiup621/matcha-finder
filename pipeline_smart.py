@@ -13,6 +13,18 @@ load_dotenv()
 
 SEEN_PATH = ".seen_roots.json"  # 既に検証したルートを保存（同じ結果の再検証を避ける）
 
+# Google CSE で除外したいノイズドメイン
+EXCLUDE_SITES = [
+    "yelp.com", "ubereats.com", "doordash.com", "tripadvisor.com",
+    "opentable.com", "facebook.com", "linktr.ee", "instagram.com",
+    "tiktok.com", "reddit.com", "pinterest.com", "square.site",
+    "order.online", "toasttab.com", "seamless.com", "grubhub.com",
+    "uber.com", "pos.chowbus.com", "fantuanorder.com", "appfront.app",
+    "mapquest.com", "linkedin.com", "x.com", "amazon.com",
+    "walmart.com",
+]
+NEG_SITE_QUERY = " " + " ".join(f"-site:{d}" for d in EXCLUDE_SITES)
+
 # スニペット判定用（ベーカリー単独は除外）
 SNIPPET_CAFE_HINTS = re.compile(
     r"\b(cafe|coffee|tea|teahouse|boba|bubble\s*tea)\b|カフェ|コーヒー|珈琲|喫茶",
@@ -58,9 +70,9 @@ def mini_site_matcha(cse: CSEClient, home: str) -> bool:
 def default_queries():
     # US に寄せるクエリ（繰り返しでもバリエーションが出るようランダム化）
     base = [
-        "matcha latte cafe {kw} -yelp -ubereats -doordash -tripadvisor -opentable -facebook -linktr.ee",
-        "matcha cafe {kw} -yelp -ubereats -doordash -tripadvisor -opentable -facebook -linktr.ee",
-        "抹茶 カフェ {kw} -yelp -ubereats -tripadvisor -opentable -facebook -linktr.ee",
+        f"matcha latte cafe {{kw}}{NEG_SITE_QUERY}",
+        f"matcha cafe {{kw}}{NEG_SITE_QUERY}",
+        f"抹茶 カフェ {{kw}}{NEG_SITE_QUERY}",
     ]
     states = [s.strip() for s in os.getenv("STATES","CA,NY,TX,FL,WA,MA,IL,CO,OR").split(",") if s.strip()]
     cities = {
@@ -103,12 +115,12 @@ def main():
 
     added = 0
     cse = CSEClient(api_key, cx, max_daily=int(os.getenv("MAX_DAILY_CSE_QUERIES","100")))
-    max_queries = int(os.getenv("MAX_QUERIES_PER_RUN", "800"))
+    max_queries = int(os.getenv("MAX_QUERIES_PER_RUN", "200"))
 
     # まず広域クエリをページ巡回しながら収集
     wide_q = os.getenv(
         "WIDE_QUERY",
-        "matcha cafe -yelp -ubereats -doordash -tripadvisor -opentable -facebook -linktr.ee",
+        f"matcha cafe{NEG_SITE_QUERY}",
     )
     try:
         for raw in search_candidates_iter(wide_q, num=10, start=1, max_pages=3):
