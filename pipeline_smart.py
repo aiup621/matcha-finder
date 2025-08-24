@@ -83,8 +83,17 @@ def main():
     target  = int(os.getenv("TARGET_NEW","100"))
     debug   = bool(int(os.getenv("DEBUG","0")))
     require_contact_on_snippet = bool(int(os.getenv("REQUIRE_CONTACT_ON_SNIPPET","1")))
+    skip_env = os.getenv("SKIP_SHEETS", "").lower()
+    if skip_env in ("1","true","yes","on"):
+        print(f"[WARN] SKIP_SHEETS={skip_env} -> Sheets append disabled")
     if not (api_key and cx and sheet_id):
+        missing = [v for v in ("GOOGLE_API_KEY","GOOGLE_CX","SHEET_ID") if not os.getenv(v)]
+        print(f"[WARN] missing env vars: {','.join(missing)}")
         raise SystemExit("GOOGLE_API_KEY / GOOGLE_CX / SHEET_ID を .env に設定してください。")
+
+    sa_path = os.getenv("SERVICE_ACCOUNT_JSON", "service_account.json")
+    if not os.path.exists(sa_path):
+        print(f"[WARN] service account file not found: {sa_path}")
 
     existing = load_existing_keys(sheet_id, ws_name)
     seen_homes  = set(existing["homes"])
@@ -200,4 +209,7 @@ def main():
                 seen_roots.add(home)
 
     save_json(SEEN_PATH, {"roots": sorted(seen_roots)})
-    print(f"[END] 追加 {added} 件で終了")
+    if added:
+        print(f"[END] 追加 {added} 件で終了")
+    else:
+        print("[WARN] 追加された行はありませんでした")

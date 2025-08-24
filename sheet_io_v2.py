@@ -68,6 +68,10 @@ def load_existing_keys(sheet_id, worksheet_name):
 
 # 常に最終行の次へ追記（ヘッダーは変更しない）
 def append_row_in_order(sheet_id, worksheet_name, rowdict):
+    skip_env = os.getenv("SKIP_SHEETS", "").lower()
+    if skip_env in ("1", "true", "yes", "on"):
+        print(f"[WARN] SKIP_SHEETS={skip_env} -> Sheets append skipped")
+        return
     ws = _open_ws(sheet_id, worksheet_name)
     row = [rowdict.get(k, "") for k in ORDER]
     ws.append_row(row, value_input_option="RAW")
