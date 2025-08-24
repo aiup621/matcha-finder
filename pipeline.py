@@ -151,7 +151,8 @@ except Exception:
 
 # === sheet_io shim (auto) ===
 try:
-    from sheet_io import open_sheet, append_rows  # use project's implementation if available
+    # append_rows_batched を直接利用するため明示的に import
+    from sheet_io import open_sheet, append_rows_batched  # use project's implementation if available
 except Exception:
     import os
     try:
@@ -173,10 +174,12 @@ except Exception:
             # 無ければ作成（必要なら列数は調整）
             return sh.add_worksheet(title=wsn, rows=2000, cols=20)
 
-    def append_rows(ws, rows):
+    def append_rows_batched(ws, rows, batch=50):
+        """シートに複数行を追記する簡易実装"""
         if not rows:
             return
-        ws.append_rows(rows, value_input_option="RAW")
+        for i in range(0, len(rows), batch):
+            ws.append_rows(rows[i:i+batch], value_input_option="RAW")
 # === end sheet_io shim ===
 from clean_rules import fix_row, dedup_rows, normalize_domain
 # ==== delivery/portal filter (auto) ====
@@ -358,6 +361,9 @@ def handle_candidate(src_url, existing_urls, newly_added_urls, out_rows):
     return True
 def main():
     load_dotenv()
+    skip_env = _os.getenv("SKIP_SHEETS", "").lower()
+    if skip_env in ("1", "true", "yes", "on"):
+        logging.warning("SKIP_SHEETS=%s -> sheet append disabled", skip_env)
     ws = open_sheet()
     existing_urls = get_existing_official_urls(ws)
     newly_added_urls = set()
