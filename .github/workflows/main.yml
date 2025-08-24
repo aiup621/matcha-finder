@@ -18,6 +18,7 @@ jobs:
       TARGET_NEW: ${{ github.event.inputs.target_new }}
       DEBUG: "1"                      # 詳細ログ（不要なら消してOK）
       SKIP_SHEETS: "0"
+      MAX_QUERIES_PER_RUN: "800"      # 1回の実行での検索上限
     steps:
       - uses: actions/checkout@v4
 

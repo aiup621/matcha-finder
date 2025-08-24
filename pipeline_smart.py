@@ -103,7 +103,7 @@ def main():
 
     added = 0
     cse = CSEClient(api_key, cx, max_daily=int(os.getenv("MAX_DAILY_CSE_QUERIES","100")))
-    max_queries = int(os.getenv("MAX_QUERIES_PER_RUN", "50"))
+    max_queries = int(os.getenv("MAX_QUERIES_PER_RUN", "800"))
 
     # まず広域クエリをページ巡回しながら収集
     wide_q = os.getenv(
