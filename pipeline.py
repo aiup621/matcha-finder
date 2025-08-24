@@ -358,6 +358,9 @@ def handle_candidate(src_url, existing_urls, newly_added_urls, out_rows):
     return True
 def main():
     load_dotenv()
+    skip_env = _os.getenv("SKIP_SHEETS", "").lower()
+    if skip_env in ("1", "true", "yes", "on"):
+        logging.warning("SKIP_SHEETS=%s -> sheet append disabled", skip_env)
     ws = open_sheet()
     existing_urls = get_existing_official_urls(ws)
     newly_added_urls = set()
