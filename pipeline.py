@@ -364,6 +364,13 @@ def main():
     skip_env = _os.getenv("SKIP_SHEETS", "").lower()
     if skip_env in ("1", "true", "yes", "on"):
         logging.warning("SKIP_SHEETS=%s -> sheet append disabled", skip_env)
+    # 必須環境変数とサービスアカウントの存在チェック
+    missing = [v for v in ("GOOGLE_API_KEY", "GOOGLE_CX", "SHEET_ID") if not _os.getenv(v)]
+    if missing:
+        logging.warning("missing env vars: %s", ",".join(missing))
+    sa_path = _os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON", "service_account.json")
+    if not _os.path.exists(sa_path):
+        logging.warning("service account file not found: %s", sa_path)
     ws = open_sheet()
     existing_urls = get_existing_official_urls(ws)
     newly_added_urls = set()

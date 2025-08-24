@@ -25,6 +25,12 @@ log = diag_logger
 _skip_env = os.getenv("SKIP_SHEETS", "").lower()
 if _skip_env in ("1", "true", "yes", "on"):
     log.warning("[trace] SKIP_SHEETS=%s -> Sheets append disabled", _skip_env)
+missing = [v for v in ("GOOGLE_API_KEY", "GOOGLE_CX", "SHEET_ID") if not os.getenv(v)]
+if missing:
+    log.warning("[trace] missing env vars: %s", ",".join(missing))
+sa_path = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON", "service_account.json")
+if not os.path.exists(sa_path):
+    log.warning("[trace] service account file not found: %s", sa_path)
 
 # ---- ネットワーク既定タイムアウト（requests を含む全体）----
 socket.setdefaulttimeout(int(os.getenv("SOCKET_TIMEOUT","20")))
