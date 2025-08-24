@@ -17,7 +17,7 @@ def _has_matcha_text(text: str)->bool:
         # ネガが強く出るなら様子見
         pass
     # セカンダリ語彙は“matcha”不在時のみ弱判定
-    if any(re.search(p, t, re.I) for p in KW_SECONDARY) and "matcha" in t.lower():
+    if any(re.search(p, t, re.I) for p in KW_SECONDARY) and "matcha" not in t.lower():
         return True
     return False
 
