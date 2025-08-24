@@ -12,6 +12,12 @@ load_dotenv()
 
 SEEN_PATH = ".seen_roots.json"  # 既に検証したルートを保存（同じ結果の再検証を避ける）
 
+# スニペット判定用（ベーカリー単独は除外）
+SNIPPET_CAFE_HINTS = re.compile(
+    r"\b(cafe|coffee|tea|teahouse|boba|bubble\s*tea)\b|カフェ|コーヒー|珈琲|喫茶",
+    re.I,
+)
+
 def load_json(path, default):
     if os.path.exists(path):
         try:
@@ -25,10 +31,11 @@ def save_json(path, obj):
     except Exception: pass
 
 def snippet_ok(item, home: str) -> bool:
-    # スニペットに matcha / 抹茶 があるなら即OK（ただしメディア/プラットフォームは除外）
+    # スニペットに matcha / 抹茶 があり、かつカフェ系ワードを含む場合のみ採用
     title = (item.get("title") or "") + " " + (item.get("snippet") or "")
-    if is_media_or_platform(home): return False
-    return bool(MATCHA_WORDS.search(title))
+    if is_media_or_platform(home):
+        return False
+    return bool(MATCHA_WORDS.search(title) and SNIPPET_CAFE_HINTS.search(title))
 
 def mini_site_matcha(cse: CSEClient, home: str) -> bool:
     # サイト内簡易検索（site:host matcha）で補強。予算が少ないので最大1クエリのみ。
