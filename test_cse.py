@@ -6,9 +6,7 @@ import requests
 import pytest
 
 key = os.getenv("GOOGLE_API_KEY")
-cx = os.getenv("GOOGLE_CSE_ID")
-print("GOOGLE_API_KEY set?:", bool(key))
-print("GOOGLE_CSE_ID     :", cx)
+cx = os.getenv("GOOGLE_CX")
 
 if not key or not cx:
     pytest.skip("Google CSE の環境変数が設定されていないため、このテストをスキップします。", allow_module_level=True)
