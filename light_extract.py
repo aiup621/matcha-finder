@@ -205,24 +205,46 @@ def extract_contacts(base: str, html: str):
         except Exception:
             pass
 
-    # 4) フォームURL探し＋追加スキャン
-    for url in find_contact_form_urls(base, html):
-        r = http_get(url)
-        if not r or not r.text: continue
-        if "<form" in r.text.lower() and not form:
-            form = url
-        for e in EMAIL_RE.findall(r.text):
-            emails.add(e)
-        for e in _deobf_text_emails(r.text):
-            emails.add(e)
-        # cfemail in contact page
-        s2 = BeautifulSoup(r.text, "lxml")
-        for el in s2.select("a.__cf_email__"):
-            enc = el.get("data-cfemail")
-            if enc:
-                dec = _decode_cfemail(enc)
-                if dec: emails.add(dec)
+    # 4) 追加ページ探索 (必要ならば)
+    if ig or emails:
+        return (ig, sorted(emails), form)
 
+    tried = set()
+
+    def scan_more(limit: int = 2):
+        nonlocal ig, form
+        urls = find_contact_form_urls(base, html, limit=limit)
+        new_urls = [u for u in urls if u not in tried]
+        for url in new_urls[:2]:
+            tried.add(url)
+            r = http_get(url)
+            if not r or not r.text:
+                continue
+            if "<form" in r.text.lower() and not form:
+                form = url
+            for e in EMAIL_RE.findall(r.text):
+                emails.add(e)
+            for e in _deobf_text_emails(r.text):
+                emails.add(e)
+            s2 = BeautifulSoup(r.text, "lxml")
+            for el in s2.select("a.__cf_email__"):
+                enc = el.get("data-cfemail")
+                if enc:
+                    dec = _decode_cfemail(enc)
+                    if dec:
+                        emails.add(dec)
+            if not ig:
+                for a in s2.find_all("a", href=True):
+                    href = a["href"]
+                    if "instagram.com" in href.lower():
+                        ig = canon_url(urljoin(url, href))
+                        break
+            if ig or emails:
+                return
+        if not ig and not emails and len(urls) > len(tried):
+            scan_more(limit + 2)
+
+    scan_more(2)
     return (ig, sorted(emails), form)
 
 def is_chain_like(base: str, html: str) -> bool:
