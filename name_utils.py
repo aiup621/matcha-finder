@@ -117,13 +117,16 @@ def _to_home(url, html=None):
     """/menu 等を受け取ってもホームへ寄せる（canonical 優先）"""
     try:
         u = urlparse(url)
+        base = f"{u.scheme}://{u.netloc}/"
         if html:
             soup = BeautifulSoup(html, "lxml")
             can = soup.find("link", rel=lambda x: x and "canonical" in x)
             if can and can.get("href"):
-                c = can["href"].strip()
-                if c.startswith("http"): return c
-        return f"{u.scheme}://{u.netloc}/"
+                c = urljoin(url, can["href"].strip())
+                can_path = urlparse(c).path.lower()
+                if not any(can_path.startswith(p) for p in GENERIC_PAGES):
+                    return c
+        return base
     except Exception:
         return url
 
