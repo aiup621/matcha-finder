@@ -201,3 +201,7 @@ def main():
 
     save_json(SEEN_PATH, {"roots": sorted(seen_roots)})
     print(f"[END] 追加 {added} 件で終了")
+
+
+if __name__ == "__main__":
+    main()
