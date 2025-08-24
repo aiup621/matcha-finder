@@ -1,6 +1,9 @@
-﻿import os, requests
+import logging
+import os
+import requests
 
 API = "https://www.googleapis.com/customsearch/v1"
+
 
 def _base_params(query, num=10):
     return {
@@ -11,16 +14,25 @@ def _base_params(query, num=10):
         "lr": "lang_en",
     }
 
+
 def search_candidates(query, num=10):
     """後方互換の単発検索（従来関数）"""
     p = _base_params(query, num=num)
-    r = requests.get(API, params=p, timeout=15)
-    r.raise_for_status()
-    data = r.json()
+    try:
+        r = requests.get(API, params=p, timeout=15)
+        r.raise_for_status()
+        data = r.json()
+    except Exception as e:
+        logging.error("search API request failed: %s", e)
+        return
+    if "error" in data:
+        logging.error("search API error: %s", data.get("error"))
+        return
     for it in data.get("items", []) or []:
         link = it.get("link")
         if link:
             yield link
+
 
 def search_candidates_iter(query, num=10, start=1, max_pages=1):
     """
@@ -36,7 +48,11 @@ def search_candidates_iter(query, num=10, start=1, max_pages=1):
             r = requests.get(API, params=p, timeout=15)
             r.raise_for_status()
             data = r.json()
-        except Exception:
+        except Exception as e:
+            logging.error("search API request failed: %s", e)
+            break
+        if "error" in data:
+            logging.error("search API error: %s", data.get("error"))
             break
         items = data.get("items", []) or []
         if not items:
@@ -47,3 +63,4 @@ def search_candidates_iter(query, num=10, start=1, max_pages=1):
                 yield link
         # 次のページへ
         s += num
+
