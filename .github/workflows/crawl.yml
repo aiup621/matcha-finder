@@ -21,4 +21,5 @@ jobs:
           GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
           GOOGLE_CX: ${{ secrets.GOOGLE_CX }}
           SHEET_ID: ${{ secrets.SHEET_ID }}
+          SKIP_SHEETS: "0"
         run: python pipeline.py

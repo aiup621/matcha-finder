@@ -21,6 +21,11 @@ if not diag_logger.handlers:
     diag_logger.addHandler(fh)
 log = diag_logger
 
+# SKIP_SHEETS が指定されている場合は早めに通知
+_skip_env = os.getenv("SKIP_SHEETS", "").lower()
+if _skip_env in ("1", "true", "yes", "on"):
+    log.warning("[trace] SKIP_SHEETS=%s -> Sheets append disabled", _skip_env)
+
 # ---- ネットワーク既定タイムアウト（requests を含む全体）----
 socket.setdefaulttimeout(int(os.getenv("SOCKET_TIMEOUT","20")))
 try:
@@ -105,22 +110,30 @@ def apply_wrappers():
         if hasattr(sio, "append_rows_batched"):
             _orig_append = sio.append_rows_batched
             APP_T = int(os.getenv("APPEND_TIMEOUT","45"))
-            SKIP  = os.getenv("SKIP_SHEETS","0") == "1"
+            SKIP  = _skip_env in ("1", "true", "yes", "on")
 
-            def _wrap_append(rows, *a, **kw):
-                try: n = len(rows)
-                except Exception: n = "?"
+            def _wrap_append(ws, rows, *a, **kw):
+                try:
+                    n = len(rows)
+                except Exception:
+                    n = "?"
                 if SKIP:
                     log.warning("[trace] SKIP Sheets append (len=%s)", n)
                     return None
 
                 log.info("[trace] append_rows_batched start: %s rows (timeout %ss)", n, APP_T)
-                res=[None]; err=[None]; done=threading.Event()
+                res = [None]; err = [None]; done = threading.Event()
+
                 def _run():
-                    try: res[0]=_orig_append(rows, *a, **kw)
-                    except Exception as e: err[0]=e
-                    finally: done.set()
-                t=threading.Thread(target=_run, daemon=True); t.start()
+                    try:
+                        res[0] = _orig_append(ws, rows, *a, **kw)
+                    except Exception as e:
+                        err[0] = e
+                    finally:
+                        done.set()
+
+                t = threading.Thread(target=_run, daemon=True)
+                t.start()
                 if not done.wait(APP_T):
                     log.warning("[trace] append_rows_batched timed out after %ss", APP_T)
                     raise TimeoutError(f"append_rows_batched timed out after {APP_T}s")
@@ -129,6 +142,7 @@ def apply_wrappers():
                     raise err[0]
                 log.info("[trace] append_rows_batched done")
                 return res[0]
+
             sio.append_rows_batched = _wrap_append
     except Exception as e:
         log.warning("[trace] sheet_io wrap skipped: %r", e)

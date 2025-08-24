@@ -17,6 +17,7 @@ jobs:
       SHEET_ID: ${{ secrets.SHEET_ID }}
       TARGET_NEW: ${{ github.event.inputs.target_new }}
       DEBUG: "1"                      # 詳細ログ（不要なら消してOK）
+      SKIP_SHEETS: "0"
     steps:
       - uses: actions/checkout@v4
 
