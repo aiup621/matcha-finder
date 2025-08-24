@@ -103,8 +103,13 @@ def main():
     queries = default_queries()
     added = 0
     cse = CSEClient(api_key, cx, max_daily=int(os.getenv("MAX_DAILY_CSE_QUERIES","100")))
+    max_queries = int(os.getenv("MAX_QUERIES_PER_RUN", "50"))
 
-    for q in queries:
+    for idx, q in enumerate(queries):
+        if idx >= max_queries:
+            if debug:
+                print("[STOP] per-run query cap reached")
+            break
         try:
             data = cse.search(q, start=1, num=10, safe="off", lr="lang_en", cr="countryUS")
         except DailyQuotaExceeded:
