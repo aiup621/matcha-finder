@@ -11,6 +11,7 @@ from light_extract import (
 load_dotenv()
 
 SEEN_PATH = ".seen_roots.json"  # 既に検証したルートを保存（同じ結果の再検証を避ける）
+CACHE_PATH = ".site_cache.json"
 
 # スニペット判定用（ベーカリー単独は除外）
 SNIPPET_CAFE_HINTS = re.compile(
@@ -30,6 +31,8 @@ def save_json(path, obj):
         with open(path,"w",encoding="utf-8") as f: json.dump(obj,f,ensure_ascii=False,indent=2)
     except Exception: pass
 
+CACHE = load_json(CACHE_PATH, {"sites": {}, "mini": {}})
+
 def snippet_ok(item, home: str) -> bool:
     # スニペットに matcha / 抹茶 があり、かつカフェ系ワードを含む場合のみ採用
     title = (item.get("title") or "") + " " + (item.get("snippet") or "")
@@ -40,6 +43,9 @@ def snippet_ok(item, home: str) -> bool:
 def mini_site_matcha(cse: CSEClient, home: str) -> bool:
     # サイト内簡易検索（site:host matcha）で補強。予算が少ないので最大1クエリのみ。
     host = canon_url(home).split("//")[-1].split("/")[0]
+    mini_cache = CACHE.setdefault("mini", {})
+    if host in mini_cache:
+        return mini_cache[host]
     q = f'site:{host} (matcha OR 抹茶)'
     try:
         data = cse.search(q, start=1, num=10, safe="off", lr="lang_en", cr="countryUS")
@@ -47,11 +53,15 @@ def mini_site_matcha(cse: CSEClient, home: str) -> bool:
         for it in items:
             link = it.get("link") or ""
             if link and host in link and not is_media_or_platform(link):
+                mini_cache[host] = True
+                save_json(CACHE_PATH, CACHE)
                 return True
     except DailyQuotaExceeded:
         pass
     except Exception:
         pass
+    mini_cache[host] = False
+    save_json(CACHE_PATH, CACHE)
     return False
 
 def default_queries():
@@ -138,27 +148,41 @@ def main():
                 seen_roots.add(home)
                 continue
 
-            # 2) ランディング取得
-            r = http_get(home)
-            html = r.text if (r and r.text) else ""
-            if not html:
-                if debug: print(f"skip[{home}]: no html")
-                seen_roots.add(home)
-                continue
+            # 2) HTML / matcha 判定のキャッシュ確認
+            home_key = canon_root(home)
+            site_cache = CACHE.setdefault("sites", {})
+            entry = site_cache.get(home_key)
+            if entry:
+                html = entry.get("html", "")
+                ok = entry.get("matcha", False)
+                if not html:
+                    if debug: print(f"skip[{home}]: no html")
+                    seen_roots.add(home)
+                    continue
+            else:
+                r = http_get(home)
+                html = r.text if (r and r.text) else ""
+                if not html:
+                    if debug: print(f"skip[{home}]: no html")
+                    seen_roots.add(home)
+                    site_cache[home_key] = {"html": "", "matcha": False}
+                    save_json(CACHE_PATH, CACHE)
+                    continue
 
-            # 3) マッチャ証拠：本文/メニュー/PDF or サイト内ミニ検索
-            ok = bool(MATCHA_WORDS.search(html_text(html)))
-            if not ok:
-                for m in find_menu_links(html, home, limit=3):
-                    r2 = http_get(m)
-                    if r2 and r2.text and MATCHA_WORDS.search(html_text(r2.text)):
-                        ok = True; break
-            if not ok:
-                pdf_text = one_pdf_text_from(html, home)
-                if pdf_text and MATCHA_WORDS.search(pdf_text.lower()):
-                    ok = True
-            if not ok:
-                ok = mini_site_matcha(cse, home)
+                ok = bool(MATCHA_WORDS.search(html_text(html)))
+                if not ok:
+                    for m in find_menu_links(html, home, limit=3):
+                        r2 = http_get(m)
+                        if r2 and r2.text and MATCHA_WORDS.search(html_text(r2.text)):
+                            ok = True; break
+                if not ok:
+                    pdf_text = one_pdf_text_from(html, home)
+                    if pdf_text and MATCHA_WORDS.search(pdf_text.lower()):
+                        ok = True
+                if not ok:
+                    ok = mini_site_matcha(cse, home)
+                site_cache[home_key] = {"html": html, "matcha": ok}
+                save_json(CACHE_PATH, CACHE)
 
             if not ok:
                 if debug: print(f"skip[{home}]: no matcha evidence (html+menu+pdf+site)")
@@ -204,6 +228,7 @@ def main():
                 print(f"[ADD] {brand} -> {home} contacts: ig={ig or '-'} email={(emails[0] if emails else '-')} form={form or '-'} （累計 {added}）")
                 if added >= target:
                     save_json(SEEN_PATH, {"roots": sorted(seen_roots)})
+                    save_json(CACHE_PATH, CACHE)
                     print("[DONE] 目標件数に到達。終了します。")
                     return
             except Exception as e:
@@ -212,6 +237,7 @@ def main():
                 seen_roots.add(home)
 
     save_json(SEEN_PATH, {"roots": sorted(seen_roots)})
+    save_json(CACHE_PATH, CACHE)
     print(f"[END] 追加 {added} 件で終了")
 
 
