@@ -18,6 +18,8 @@ SNIPPET_CAFE_HINTS = re.compile(
     re.I,
 )
 
+EMAIL_RE = re.compile(r"[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}", re.I)
+
 def load_json(path, default):
     if os.path.exists(path):
         try:
@@ -132,9 +134,41 @@ def main():
                 if debug: print(f"skip[{home}]: already-in-sheet")
                 continue
 
-            # 1) スニペット事前判定（US向け/プラットフォーム除外）
-            if not snippet_ok(it, home):
-                if debug: print(f"skip[{home}]: snippet not matcha or platform")
+            pagemap = it.get("pagemap") or {}
+            meta_texts = []
+            meta_ig = ""
+            meta_emails = set()
+            for mt in pagemap.get("metatags", []):
+                if not isinstance(mt, dict):
+                    continue
+                for v in mt.values():
+                    if not isinstance(v, str):
+                        continue
+                    meta_texts.append(v)
+                    lv = v.lower()
+                    if not meta_ig and "instagram.com" in lv:
+                        meta_ig = canon_url(v)
+                    if lv.startswith("mailto:"):
+                        meta_emails.add(lv.replace("mailto:", "").split("?")[0])
+                    for em in EMAIL_RE.findall(v):
+                        meta_emails.add(em)
+            for img in pagemap.get("cse_image", []):
+                if not isinstance(img, dict):
+                    continue
+                src = img.get("src") or ""
+                lv = src.lower()
+                if not meta_ig and "instagram.com" in lv:
+                    meta_ig = canon_url(src)
+                if lv.startswith("mailto:"):
+                    meta_emails.add(lv.replace("mailto:", "").split("?")[0])
+                for em in EMAIL_RE.findall(src):
+                    meta_emails.add(em)
+            meta_text = " ".join(meta_texts)
+            meta_hit = bool(MATCHA_WORDS.search(meta_text) or "instagram.com" in meta_text.lower())
+
+            # 1) スニペット/メタタグ事前判定（US向け/プラットフォーム除外）
+            if not (snippet_ok(it, home) or meta_hit):
+                if debug: print(f"skip[{home}]: snippet/metatag not matcha")
                 seen_roots.add(home)
                 continue
 
@@ -172,7 +206,11 @@ def main():
                 continue
 
             # 5) 連絡先抽出（必須）
-            ig, emails, form = extract_contacts(home, html)
+            ig = meta_ig
+            emails = sorted(meta_emails)
+            form = ""
+            if not (ig or emails):
+                ig, emails, form = extract_contacts(home, html)
             if require_contact_on_snippet and not (ig or emails or form):
                 if debug: print(f"skip[{home}]: no contacts found")
                 seen_roots.add(home)
