@@ -21,6 +21,11 @@ if not diag_logger.handlers:
     diag_logger.addHandler(fh)
 log = diag_logger
 
+# SKIP_SHEETS が指定されている場合は早めに通知
+_skip_env = os.getenv("SKIP_SHEETS", "").lower()
+if _skip_env in ("1", "true", "yes", "on"):
+    log.warning("[trace] SKIP_SHEETS=%s -> Sheets append disabled", _skip_env)
+
 # ---- ネットワーク既定タイムアウト（requests を含む全体）----
 socket.setdefaulttimeout(int(os.getenv("SOCKET_TIMEOUT","20")))
 try:
@@ -105,7 +110,7 @@ def apply_wrappers():
         if hasattr(sio, "append_rows_batched"):
             _orig_append = sio.append_rows_batched
             APP_T = int(os.getenv("APPEND_TIMEOUT","45"))
-            SKIP  = os.getenv("SKIP_SHEETS","0") == "1"
+            SKIP  = _skip_env in ("1", "true", "yes", "on")
 
             def _wrap_append(rows, *a, **kw):
                 try: n = len(rows)
