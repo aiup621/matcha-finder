@@ -7,6 +7,7 @@ __pycache__/
 service_account.json
 .cse_usage.json
 .seen_roots.json
+.mini_site_cache.json
 .query_yield.json
 
 # ツール設定

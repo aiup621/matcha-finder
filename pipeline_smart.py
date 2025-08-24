@@ -30,6 +30,10 @@ def save_json(path, obj):
         with open(path,"w",encoding="utf-8") as f: json.dump(obj,f,ensure_ascii=False,indent=2)
     except Exception: pass
 
+# mini_site_matcha 用キャッシュ
+MINI_SITE_CACHE_PATH = ".mini_site_cache.json"
+mini_site_cache = load_json(MINI_SITE_CACHE_PATH, {})
+
 def snippet_ok(item, home: str) -> bool:
     # スニペットに matcha / 抹茶 があり、かつカフェ系ワードを含む場合のみ採用
     title = (item.get("title") or "") + " " + (item.get("snippet") or "")
@@ -40,19 +44,24 @@ def snippet_ok(item, home: str) -> bool:
 def mini_site_matcha(cse: CSEClient, home: str) -> bool:
     # サイト内簡易検索（site:host matcha）で補強。予算が少ないので最大1クエリのみ。
     host = canon_url(home).split("//")[-1].split("/")[0]
+    if host in mini_site_cache:
+        return mini_site_cache[host]
     q = f'site:{host} (matcha OR 抹茶)'
+    found = False
     try:
         data = cse.search(q, start=1, num=10, safe="off", lr="lang_en", cr="countryUS")
         items = data.get("items") or []
         for it in items:
             link = it.get("link") or ""
             if link and host in link and not is_media_or_platform(link):
-                return True
+                found = True
+                break
     except DailyQuotaExceeded:
         pass
     except Exception:
         pass
-    return False
+    mini_site_cache[host] = found
+    return found
 
 def default_queries():
     # US に寄せるクエリ（繰り返しでもバリエーションが出るようランダム化）
@@ -137,8 +146,14 @@ def main():
                 if debug: print(f"skip[{home}]: snippet not matcha or platform")
                 seen_roots.add(home)
                 continue
+            
+            # 2) サイト内ミニ検索（CSE）でマッチャ言及を確認
+            if not mini_site_matcha(cse, home):
+                if debug: print(f"skip[{home}]: mini site search")
+                seen_roots.add(home)
+                continue
 
-            # 2) ランディング取得
+            # 3) ランディング取得
             r = http_get(home)
             html = r.text if (r and r.text) else ""
             if not html:
@@ -146,7 +161,7 @@ def main():
                 seen_roots.add(home)
                 continue
 
-            # 3) マッチャ証拠：本文/メニュー/PDF or サイト内ミニ検索
+            # 4) マッチャ証拠：本文/メニュー/PDF
             ok = bool(MATCHA_WORDS.search(html_text(html)))
             if not ok:
                 for m in find_menu_links(html, home, limit=3):
@@ -157,28 +172,26 @@ def main():
                 pdf_text = one_pdf_text_from(html, home)
                 if pdf_text and MATCHA_WORDS.search(pdf_text.lower()):
                     ok = True
-            if not ok:
-                ok = mini_site_matcha(cse, home)
 
             if not ok:
-                if debug: print(f"skip[{home}]: no matcha evidence (html+menu+pdf+site)")
+                if debug: print(f"skip[{home}]: no matcha evidence (html+menu+pdf)")
                 seen_roots.add(home)
                 continue
 
-            # 4) US の独立カフェらしさ
+            # 5) US の独立カフェらしさ
             if not is_us_cafe_site(home, html):
                 if debug: print(f"skip[{home}]: not US independent cafe")
                 seen_roots.add(home)
                 continue
 
-            # 5) 連絡先抽出（必須）
+            # 6) 連絡先抽出（必須）
             ig, emails, form = extract_contacts(home, html)
             if require_contact_on_snippet and not (ig or emails or form):
                 if debug: print(f"skip[{home}]: no contacts found")
                 seen_roots.add(home)
                 continue
 
-            # 6) IG 重複／シート重複チェック
+            # 7) IG 重複／シート重複チェック
             ig_key = canon_url(ig) if ig else ""
             if ig_key and ig_key in seen_instas:
                 if debug: print(f"skip[{home}]: dup insta")
@@ -204,6 +217,7 @@ def main():
                 print(f"[ADD] {brand} -> {home} contacts: ig={ig or '-'} email={(emails[0] if emails else '-')} form={form or '-'} （累計 {added}）")
                 if added >= target:
                     save_json(SEEN_PATH, {"roots": sorted(seen_roots)})
+                    save_json(MINI_SITE_CACHE_PATH, mini_site_cache)
                     print("[DONE] 目標件数に到達。終了します。")
                     return
             except Exception as e:
@@ -212,6 +226,7 @@ def main():
                 seen_roots.add(home)
 
     save_json(SEEN_PATH, {"roots": sorted(seen_roots)})
+    save_json(MINI_SITE_CACHE_PATH, mini_site_cache)
     print(f"[END] 追加 {added} 件で終了")
 
 
