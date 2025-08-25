@@ -9,6 +9,8 @@ def _base_params(query, num=10):
         "q": query,
         "num": num,
         "lr": "lang_en",
+        "cr": "countryUS",
+        "gl": "us",
     }
 
 def search_candidates(query, num=10):

@@ -55,12 +55,16 @@ class CSEClient:
                 return True
         return False
 
-    def search(self, q, start=1, num=10, safe="off", lr=None, cr=None):
+    def search(self, q, start=1, num=10, safe="off", lr=None, cr=None, gl=None):
         if self.remaining() <= 0:
             raise DailyQuotaExceeded("Daily query budget exhausted")
         params = {"key": self.api_key, "cx": self.cx, "q": q, "num": num, "start": start, "safe": safe}
-        if lr: params["lr"] = lr
-        if cr: params["cr"] = cr
+        if lr:
+            params["lr"] = lr
+        if cr:
+            params["cr"] = cr
+        if gl:
+            params["gl"] = gl
         url = "https://www.googleapis.com/customsearch/v1"
         try:
             resp = requests.get(url, params=params, timeout=self.timeout)

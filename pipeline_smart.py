@@ -14,14 +14,30 @@ load_dotenv()
 SEEN_PATH = ".seen_roots.json"  # 既に検証したルートを保存（同じ結果の再検証を避ける）
 
 # Google CSE で除外したいノイズドメイン
+# Google CSE で除外したいノイズドメイン
 EXCLUDE_SITES = [
-    "yelp.com", "ubereats.com", "doordash.com", "tripadvisor.com",
-    "opentable.com", "facebook.com", "linktr.ee", "instagram.com",
-    "tiktok.com", "reddit.com", "pinterest.com", "square.site",
-    "order.online", "toasttab.com", "seamless.com", "grubhub.com",
-    "uber.com", "pos.chowbus.com", "fantuanorder.com", "appfront.app",
-    "mapquest.com", "linkedin.com", "x.com", "amazon.com",
-    "walmart.com",
+    # SNS / UGC / メディア
+    "instagram.com", "tiktok.com", "reddit.com", "pinterest.com",
+    "linkedin.com", "x.com", "quora.com", "flickr.com", "goodreads.com",
+    "timeout.com", "eater.com", "theinfatuation.com", "sfchronicle.com",
+    "sacbee.com", "king5.com", "thenewstribune.com", "wanderlog.com",
+    "trip.com",
+    # デリバリー / モール / 求人 / 注文ホスティング等
+    "yelp.com", "ubereats.com", "doordash.com", "postmates.com",
+    "seamless.com", "grubhub.com", "mercato.com", "order.online",
+    "toasttab.com", "toast.site", "orderexperience.net", "appfront.app",
+    "res-menu.com", "craverapp.com", "square.site", "mapquest.com",
+    "indeed.com", "glassdoor.com",
+    # 量販 / EC / ティーブランド等
+    "amazon.com", "walmart.com", "samsclub.com", "sayweee.com",
+    "centralmarket.com", "uwajimaya.com", "jadeleafmatcha.com",
+    "isshikimatcha.com", "cuzenmatcha.com", "senbirdtea.com",
+    # チェーン店
+    "starbucks.com", "starbucksreserve.com", "bluebottlecoffee.com",
+    "peets.com", "dutchbros.com", "arabicacoffeeus.com",
+    "85cbakerycafe.com", "parisbaguette.com", "lalalandkindcafe.com",
+    "nanasgreentea.com", "nanasgreenteaus.com", "chachamatcha.com",
+    "kettl.co", "matchaful.com",
 ]
 NEG_SITE_QUERY = " " + " ".join(f"-site:{d}" for d in EXCLUDE_SITES)
 
@@ -55,7 +71,7 @@ def mini_site_matcha(cse: CSEClient, home: str) -> bool:
     host = canon_url(home).split("//")[-1].split("/")[0]
     q = f'site:{host} (matcha OR 抹茶)'
     try:
-        data = cse.search(q, start=1, num=10, safe="off", lr="lang_en", cr="countryUS")
+        data = cse.search(q, start=1, num=10, safe="off", lr="lang_en", cr="countryUS", gl="us")
         items = data.get("items") or []
         for it in items:
             link = it.get("link") or ""
@@ -70,9 +86,7 @@ def mini_site_matcha(cse: CSEClient, home: str) -> bool:
 def default_queries():
     # US に寄せるクエリ（繰り返しでもバリエーションが出るようランダム化）
     base = [
-        f"matcha latte cafe {{kw}}{NEG_SITE_QUERY}",
-        f"matcha cafe {{kw}}{NEG_SITE_QUERY}",
-        f"抹茶 カフェ {{kw}}{NEG_SITE_QUERY}",
+        f"(\"matcha latte\" OR \"matcha menu\" OR \"抹茶 ラテ\" OR \"抹茶 メニュー\") (cafe OR \"coffee house\" OR \"tea house\" OR bakery) {{kw}}{NEG_SITE_QUERY}"
     ]
     states = [s.strip() for s in os.getenv("STATES","CA,NY,TX,FL,WA,MA,IL,CO,OR").split(",") if s.strip()]
     cities = {
@@ -115,7 +129,22 @@ def main():
 
     added = 0
     cse = CSEClient(api_key, cx, max_daily=int(os.getenv("MAX_DAILY_CSE_QUERIES","100")))
-    max_queries = int(os.getenv("MAX_QUERIES_PER_RUN", "200"))
+    max_queries = int(os.getenv("MAX_QUERIES_PER_RUN", "150"))
+    skip_breaker = int(os.getenv("SKIP_BREAKER", "60"))
+    skip_streak = 0
+
+    def on_skip():
+        nonlocal skip_streak
+        skip_streak += 1
+        if skip_streak >= skip_breaker:
+            save_json(SEEN_PATH, {"roots": sorted(seen_roots)})
+            print("[STOP] too many consecutive skips")
+            return True
+        return False
+
+    def on_add():
+        nonlocal skip_streak
+        skip_streak = 0
 
     # まず広域クエリをページ巡回しながら収集
     wide_q = os.getenv(
@@ -127,16 +156,24 @@ def main():
             home = normalize_candidate_url(raw)
             if not home:
                 if debug: print(f"skip[{raw}]: blocked or empty")
+                if on_skip():
+                    return
                 continue
             if home in seen_roots:
                 if debug: print(f"skip[{home}]: already-seen root")
+                if on_skip():
+                    return
                 continue
             if home in seen_homes:
                 if debug: print(f"skip[{home}]: already-in-sheet")
+                if on_skip():
+                    return
                 continue
             if is_media_or_platform(home):
                 if debug: print(f"skip[{home}]: platform or media")
                 seen_roots.add(home)
+                if on_skip():
+                    return
                 continue
 
             # ランディング取得
@@ -145,6 +182,8 @@ def main():
             if not html:
                 if debug: print(f"skip[{home}]: no html")
                 seen_roots.add(home)
+                if on_skip():
+                    return
                 continue
 
             # マッチャ証拠：本文/メニュー/PDF or サイト内ミニ検索
@@ -164,12 +203,16 @@ def main():
             if not ok:
                 if debug: print(f"skip[{home}]: no matcha evidence (html+menu+pdf+site)")
                 seen_roots.add(home)
+                if on_skip():
+                    return
                 continue
 
             # US の独立カフェらしさ
             if not is_us_cafe_site(home, html):
                 if debug: print(f"skip[{home}]: not US independent cafe")
                 seen_roots.add(home)
+                if on_skip():
+                    return
                 continue
 
             # 連絡先抽出（必須）
@@ -177,6 +220,8 @@ def main():
             if require_contact_on_snippet and not (ig or emails or form):
                 if debug: print(f"skip[{home}]: no contacts found")
                 seen_roots.add(home)
+                if on_skip():
+                    return
                 continue
 
             # IG 重複／シート重複チェック
@@ -184,6 +229,8 @@ def main():
             if ig_key and ig_key in seen_instas:
                 if debug: print(f"skip[{home}]: dup insta")
                 seen_roots.add(home)
+                if on_skip():
+                    return
                 continue
 
             brand = guess_brand(home, html, "")
@@ -199,6 +246,7 @@ def main():
             try:
                 append_row_in_order(sheet_id, ws_name, row)
                 added += 1
+                on_add()
                 seen_homes.add(home)
                 if ig_key: seen_instas.add(ig_key)
                 seen_roots.add(home)
@@ -211,6 +259,8 @@ def main():
                 print(f"[WARN] スプシ書き込み失敗: {home} -> {e}")
                 traceback.print_exc()
                 seen_roots.add(home)
+                if on_skip():
+                    return
     except Exception as e:
         if debug: print(f"search_iter error: {e}")
 
@@ -223,7 +273,7 @@ def main():
                     print("[STOP] per-run query cap reached")
                 break
             try:
-                data = cse.search(q, start=1, num=10, safe="off", lr="lang_en", cr="countryUS")
+                data = cse.search(q, start=1, num=10, safe="off", lr="lang_en", cr="countryUS", gl="us")
             except DailyQuotaExceeded:
                 print("[STOP] Google CSE 日次上限/レート制限に到達。")
                 break
@@ -236,18 +286,26 @@ def main():
                 home = normalize_candidate_url(raw)
                 if not home:
                     if debug: print(f"skip[{raw}]: blocked or empty")
+                    if on_skip():
+                        return
                     continue
                 if home in seen_roots:
                     if debug: print(f"skip[{home}]: already-seen root")
+                    if on_skip():
+                        return
                     continue
                 if home in seen_homes:
                     if debug: print(f"skip[{home}]: already-in-sheet")
+                    if on_skip():
+                        return
                     continue
 
                 # 1) スニペット事前判定（US向け/プラットフォーム除外）
                 if not snippet_ok(it, home):
                     if debug: print(f"skip[{home}]: snippet not matcha or platform")
                     seen_roots.add(home)
+                    if on_skip():
+                        return
                     continue
 
                 # 2) ランディング取得
@@ -256,6 +314,8 @@ def main():
                 if not html:
                     if debug: print(f"skip[{home}]: no html")
                     seen_roots.add(home)
+                    if on_skip():
+                        return
                     continue
 
                 # 3) マッチャ証拠：本文/メニュー/PDF or サイト内ミニ検索
@@ -275,12 +335,16 @@ def main():
                 if not ok:
                     if debug: print(f"skip[{home}]: no matcha evidence (html+menu+pdf+site)")
                     seen_roots.add(home)
+                    if on_skip():
+                        return
                     continue
 
                 # 4) US の独立カフェらしさ
                 if not is_us_cafe_site(home, html):
                     if debug: print(f"skip[{home}]: not US independent cafe")
                     seen_roots.add(home)
+                    if on_skip():
+                        return
                     continue
 
                 # 5) 連絡先抽出（必須）
@@ -288,6 +352,8 @@ def main():
                 if require_contact_on_snippet and not (ig or emails or form):
                     if debug: print(f"skip[{home}]: no contacts found")
                     seen_roots.add(home)
+                    if on_skip():
+                        return
                     continue
 
                 # 6) IG 重複／シート重複チェック
@@ -295,6 +361,8 @@ def main():
                 if ig_key and ig_key in seen_instas:
                     if debug: print(f"skip[{home}]: dup insta")
                     seen_roots.add(home)
+                    if on_skip():
+                        return
                     continue
 
                 brand = guess_brand(home, html, it.get("title") or "")
@@ -310,6 +378,7 @@ def main():
                 try:
                     append_row_in_order(sheet_id, ws_name, row)
                     added += 1
+                    on_add()
                     seen_homes.add(home)
                     if ig_key: seen_instas.add(ig_key)
                     seen_roots.add(home)
@@ -322,6 +391,8 @@ def main():
                     print(f"[WARN] スプシ書き込み失敗: {home} -> {e}")
                     traceback.print_exc()
                     seen_roots.add(home)
+                    if on_skip():
+                        return
 
     save_json(SEEN_PATH, {"roots": sorted(seen_roots)})
     print(f"[END] 追加 {added} 件で終了")
