@@ -4,11 +4,11 @@ from dotenv import load_dotenv
 from cse_client import CSEClient, DailyQuotaExceeded
 from sheet_io_v2 import append_row_in_order, load_existing_keys
 from light_extract import (
-    canon_root, canon_url, http_get, html_text, is_media_or_platform,
-    is_blocked, normalize_candidate_url, find_menu_links, one_pdf_text_from,
+    canon_url, http_get, html_text, is_media_or_platform,
+    normalize_candidate_url, find_menu_links,
     extract_contacts, is_us_cafe_site, guess_brand, MATCHA_WORDS
 )
-from search_google import search_candidates_iter
+from verify_matcha import verify_matcha
 
 load_dotenv()
 
@@ -98,6 +98,32 @@ def mini_site_matcha(cse: CSEClient, home: str) -> bool:
         pass
     return False
 
+
+def iter_cse_items(cse: CSEClient, query: str, num=10, start=1, max_pages=1):
+    """CSE 検索結果をページ送りで反復取得し、item を返す"""
+    s = start
+    for _ in range(max_pages):
+        try:
+            data = cse.search(
+                query,
+                start=s,
+                num=num,
+                safe="off",
+                lr="lang_en",
+                cr="countryUS",
+                gl="us",
+            )
+        except DailyQuotaExceeded:
+            break
+        except Exception:
+            break
+        items = data.get("items") or []
+        if not items:
+            break
+        for it in items:
+            yield it
+        s += num
+
 def default_queries():
     # US に寄せるクエリ（繰り返しでもバリエーションが出るようランダム化）
     base = [
@@ -171,7 +197,8 @@ def main():
         f"matcha cafe{NEG_SITE_QUERY}",
     )
     try:
-        for raw in search_candidates_iter(wide_q, num=10, start=1, max_pages=3):
+        for it in iter_cse_items(cse, wide_q, num=10, start=1, max_pages=3):
+            raw = (it.get("link") or "").strip()
             home = normalize_candidate_url(raw)
             if not home:
                 if debug: print(f"skip[{raw}]: blocked or empty")
@@ -188,8 +215,8 @@ def main():
                 if on_skip():
                     return
                 continue
-            if is_media_or_platform(home):
-                if debug: print(f"skip[{home}]: platform or media")
+            if not snippet_ok(it, home):
+                if debug: print(f"skip[{home}]: snippet not matcha or platform")
                 seen_roots.add(home)
                 if on_skip():
                     return
@@ -205,28 +232,20 @@ def main():
                     return
                 continue
 
-            # マッチャ証拠：本文/メニュー/PDF or サイト内ミニ検索
-            ok = bool(MATCHA_WORDS.search(html_text(html)))
-            if not ok:
-                for m in find_menu_links(html, home, limit=3):
-                    r2 = http_get(m)
-                    if r2 and r2.text and MATCHA_WORDS.search(html_text(r2.text)):
-                        ok = True; break
-            if not ok:
-                pdf_text = one_pdf_text_from(html, home)
-                if pdf_text and MATCHA_WORDS.search(pdf_text.lower()):
-                    ok = True
+            ig, emails, form = extract_contacts(home, html)
+            menus = list(find_menu_links(html, home, limit=3))
+            how, evidence = verify_matcha(menus, ig, html_text(html))
+            ok = bool(how)
             if not ok:
                 ok = mini_site_matcha(cse, home)
 
             if not ok:
-                if debug: print(f"skip[{home}]: no matcha evidence (html+menu+pdf+site)")
+                if debug: print(f"skip[{home}]: no matcha evidence")
                 seen_roots.add(home)
                 if on_skip():
                     return
                 continue
 
-            # US の独立カフェらしさ
             if not is_us_cafe_site(home, html):
                 if debug: print(f"skip[{home}]: not US independent cafe")
                 seen_roots.add(home)
@@ -234,8 +253,6 @@ def main():
                     return
                 continue
 
-            # 連絡先抽出（必須）
-            ig, emails, form = extract_contacts(home, html)
             if require_contact_on_snippet and not (ig or emails or form):
                 if debug: print(f"skip[{home}]: no contacts found")
                 seen_roots.add(home)
@@ -243,7 +260,6 @@ def main():
                     return
                 continue
 
-            # IG 重複／シート重複チェック
             ig_key = canon_url(ig) if ig else ""
             if ig_key and ig_key in seen_instas:
                 if debug: print(f"skip[{home}]: dup insta")
@@ -252,14 +268,14 @@ def main():
                     return
                 continue
 
-            brand = guess_brand(home, html, "")
+            brand = guess_brand(home, html, it.get("title") or "")
             row = {
                 "店名": brand,
                 "国": "US",
                 "公式サイトURL": home,
                 "Instagramリンク": ig,
                 "問い合わせアドレス": (emails[0] if emails else ""),
-                "問い合わせフォームURL": form
+                "問い合わせフォームURL": form,
             }
 
             try:
@@ -267,9 +283,12 @@ def main():
                 added += 1
                 on_add()
                 seen_homes.add(home)
-                if ig_key: seen_instas.add(ig_key)
+                if ig_key:
+                    seen_instas.add(ig_key)
                 seen_roots.add(home)
-                print(f"[ADD] {brand} -> {home} contacts: ig={ig or '-'} email={(emails[0] if emails else '-')} form={form or '-'} （累計 {added}）")
+                print(
+                    f"[ADD] {brand} -> {home} contacts: ig={ig or '-'} email={(emails[0] if emails else '-')} form={form or '-'} （累計 {added}）"
+                )
                 if added >= target:
                     save_json(SEEN_PATH, {"roots": sorted(seen_roots)})
                     print("[DONE] 目標件数に到達。終了します。")
@@ -281,7 +300,8 @@ def main():
                 if on_skip():
                     return
     except Exception as e:
-        if debug: print(f"search_iter error: {e}")
+        if debug:
+            print(f"search_iter error: {e}")
 
     # 広域クエリで30件未満なら州別クエリで補完
     if added < 30:
@@ -337,28 +357,20 @@ def main():
                         return
                     continue
 
-                # 3) マッチャ証拠：本文/メニュー/PDF or サイト内ミニ検索
-                ok = bool(MATCHA_WORDS.search(html_text(html)))
-                if not ok:
-                    for m in find_menu_links(html, home, limit=3):
-                        r2 = http_get(m)
-                        if r2 and r2.text and MATCHA_WORDS.search(html_text(r2.text)):
-                            ok = True; break
-                if not ok:
-                    pdf_text = one_pdf_text_from(html, home)
-                    if pdf_text and MATCHA_WORDS.search(pdf_text.lower()):
-                        ok = True
+                ig, emails, form = extract_contacts(home, html)
+                menus = list(find_menu_links(html, home, limit=3))
+                how, evidence = verify_matcha(menus, ig, html_text(html))
+                ok = bool(how)
                 if not ok:
                     ok = mini_site_matcha(cse, home)
 
                 if not ok:
-                    if debug: print(f"skip[{home}]: no matcha evidence (html+menu+pdf+site)")
+                    if debug: print(f"skip[{home}]: no matcha evidence")
                     seen_roots.add(home)
                     if on_skip():
                         return
                     continue
 
-                # 4) US の独立カフェらしさ
                 if not is_us_cafe_site(home, html):
                     if debug: print(f"skip[{home}]: not US independent cafe")
                     seen_roots.add(home)
@@ -366,8 +378,6 @@ def main():
                         return
                     continue
 
-                # 5) 連絡先抽出（必須）
-                ig, emails, form = extract_contacts(home, html)
                 if require_contact_on_snippet and not (ig or emails or form):
                     if debug: print(f"skip[{home}]: no contacts found")
                     seen_roots.add(home)
@@ -375,7 +385,6 @@ def main():
                         return
                     continue
 
-                # 6) IG 重複／シート重複チェック
                 ig_key = canon_url(ig) if ig else ""
                 if ig_key and ig_key in seen_instas:
                     if debug: print(f"skip[{home}]: dup insta")
@@ -391,7 +400,7 @@ def main():
                     "公式サイトURL": home,
                     "Instagramリンク": ig,
                     "問い合わせアドレス": (emails[0] if emails else ""),
-                    "問い合わせフォームURL": form
+                    "問い合わせフォームURL": form,
                 }
 
                 try:
@@ -399,9 +408,12 @@ def main():
                     added += 1
                     on_add()
                     seen_homes.add(home)
-                    if ig_key: seen_instas.add(ig_key)
+                    if ig_key:
+                        seen_instas.add(ig_key)
                     seen_roots.add(home)
-                    print(f"[ADD] {brand} -> {home} contacts: ig={ig or '-'} email={(emails[0] if emails else '-')} form={form or '-'} （累計 {added}）")
+                    print(
+                        f"[ADD] {brand} -> {home} contacts: ig={ig or '-'} email={(emails[0] if emails else '-')} form={form or '-'} （累計 {added}）"
+                    )
                     if added >= target:
                         save_json(SEEN_PATH, {"roots": sorted(seen_roots)})
                         print("[DONE] 目標件数に到達。終了します。")
