@@ -1,6 +1,9 @@
 ﻿import io, re, requests
 from bs4 import BeautifulSoup
-from PIL import Image
+try:
+    from PIL import Image
+except ImportError:  # Pillow が無い環境でも他の判定は継続できるようにする
+    Image = None
 from PyPDF2 import PdfReader
 import pytesseract
 
@@ -40,17 +43,20 @@ def _pdf_text(url: str)->str:
             return "\n".join(out)
     except: return ""
 
-def _ocr_image_from_url(url: str)->str:
+def _ocr_image_from_url(url: str) -> str:
+    if Image is None:
+        return ""
     try:
         r = requests.get(url, timeout=15, stream=True)
         r.raise_for_status()
         img = Image.open(io.BytesIO(r.content)).convert("RGB")
         # 文字が小さい想定で拡大→OCR
         w, h = img.size
-        if min(w,h) < 1200:
-            img = img.resize((w*2, h*2))
+        if min(w, h) < 1200:
+            img = img.resize((w * 2, h * 2))
         return pytesseract.image_to_string(img, lang="eng")
-    except: return ""
+    except:
+        return ""
 
 def verify_matcha(menu_urls, insta_url, homepage_html):
     """
