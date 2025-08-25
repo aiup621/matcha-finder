@@ -1,4 +1,5 @@
 ﻿import os, json, traceback, re
+import requests
 from dotenv import load_dotenv
 from cse_client import CSEClient, DailyQuotaExceeded
 from sheet_io_v2 import append_row_in_order, load_existing_keys
@@ -58,6 +59,20 @@ def save_json(path, obj):
     try:
         with open(path,"w",encoding="utf-8") as f: json.dump(obj,f,ensure_ascii=False,indent=2)
     except Exception: pass
+
+def check_cse_quota(api_key: str, cx: str):
+    """Google CSE にテストクエリを送り、クォータを事前確認する"""
+    try:
+        resp = requests.get(
+            "https://www.googleapis.com/customsearch/v1",
+            params={"key": api_key, "cx": cx, "q": "quota check", "num": 1},
+            timeout=10,
+        )
+    except requests.RequestException:
+        return
+    if resp.status_code in (429, 403):
+        print("クォータ不足")
+        raise SystemExit(1)
 
 def snippet_ok(item, home: str) -> bool:
     # スニペットに matcha / 抹茶 があり、かつカフェ系ワードを含む場合のみ採用
@@ -119,6 +134,8 @@ def main():
     require_contact_on_snippet = bool(int(os.getenv("REQUIRE_CONTACT_ON_SNIPPET","1")))
     if not (api_key and cx and sheet_id):
         raise SystemExit("GOOGLE_API_KEY / GOOGLE_CX / SHEET_ID を .env に設定してください。")
+
+    check_cse_quota(api_key, cx)
 
     existing = load_existing_keys(sheet_id, ws_name)
     seen_homes  = set(existing["homes"])
