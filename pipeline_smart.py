@@ -129,7 +129,9 @@ def main():
 
     added = 0
     cse = CSEClient(api_key, cx, max_daily=int(os.getenv("MAX_DAILY_CSE_QUERIES","100")))
-    max_queries = int(os.getenv("MAX_QUERIES_PER_RUN", "150"))
+    # Limit how many CSE queries are issued per run. Can be overridden via
+    # the MAX_QUERIES_PER_RUN environment variable.
+    max_queries = int(os.getenv("MAX_QUERIES_PER_RUN", "120"))
     skip_breaker = int(os.getenv("SKIP_BREAKER", "60"))
     skip_streak = 0
 
