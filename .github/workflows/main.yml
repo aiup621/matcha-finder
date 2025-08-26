@@ -29,6 +29,29 @@ jobs:
       - name: Install deps
         run: pip install -r requirements_smart.txt
 
+      - name: Show requirements_smart.txt
+        run: |
+          echo "===== requirements_smart.txt ====="
+          cat requirements_smart.txt || true
+
+      - name: Dependency smoke test
+        run: |
+          python -m pip check
+          python - <<'PY'
+          import importlib, sys
+          mods = ["PIL","PyPDF2","gspread","bs4","lxml","pdfminer","google.oauth2"]
+          missing = []
+          for m in mods:
+              try:
+                  importlib.import_module(m)
+              except Exception as e:
+                  missing.append(f"{m}: {e}")
+          if missing:
+              print("Missing modules:\n" + "\n".join(missing))
+              sys.exit(1)
+          print("All imports OK")
+          PY
+
       - name: Write service account json
         run: echo "$SERVICE_ACCOUNT_JSON" > service_account.json
         env:
