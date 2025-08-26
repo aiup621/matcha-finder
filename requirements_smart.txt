@@ -6,3 +6,4 @@ beautifulsoup4
 lxml
 pdfminer.six
 Pillow
+PyPDF2>=3,<4
