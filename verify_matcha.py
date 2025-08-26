@@ -2,7 +2,10 @@
 from bs4 import BeautifulSoup
 from PIL import Image
 from PyPDF2 import PdfReader
-import pytesseract
+try:
+    import pytesseract  # type: ignore
+except ModuleNotFoundError:
+    pytesseract = None  # type: ignore
 
 # 語彙（過検知を避けるフィルタつき）
 KW_POSITIVE = [r"\bmatcha\b", r"\bmatcha\s+latte\b", r"抹茶"]
@@ -41,6 +44,11 @@ def _pdf_text(url: str)->str:
     except: return ""
 
 def _ocr_image_from_url(url: str)->str:
+    import shutil
+    if pytesseract is None:
+        raise RuntimeError("pytesseract が見つかりません。requirements と CI の Tesseract インストールを確認してください。")
+    if not shutil.which("tesseract"):
+        raise RuntimeError("tesseract バイナリが見つかりません。CIで 'apt-get install tesseract-ocr' を実行してください。")
     try:
         r = requests.get(url, timeout=15, stream=True)
         r.raise_for_status()

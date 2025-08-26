@@ -7,3 +7,4 @@ lxml
 pdfminer.six
 Pillow
 PyPDF2>=3,<4
+pytesseract>=0.3.13,<0.4
