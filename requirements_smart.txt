@@ -5,3 +5,5 @@ python-dotenv
 beautifulsoup4
 lxml
 pdfminer.six
+
+PyPDF2>=3.0,<4
