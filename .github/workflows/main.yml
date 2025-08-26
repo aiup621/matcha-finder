@@ -26,6 +26,11 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Install Tesseract OCR
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y tesseract-ocr tesseract-ocr-eng tesseract-ocr-jpn tesseract-ocr-jpn-vert
+
       - name: Install deps
         run: pip install -r requirements_smart.txt
 
@@ -50,6 +55,30 @@ jobs:
               print("Missing modules:\n" + "\n".join(missing))
               sys.exit(1)
           print("All imports OK")
+          PY
+
+      - name: Dependency smoke test (OCR)
+        run: |
+          tesseract --version
+          python - <<'PY'
+          import importlib, shutil, sys, pytesseract
+          mods = ["PIL","PyPDF2","pytesseract","gspread","bs4","lxml","pdfminer","google.oauth2"]
+          missing = []
+          for m in mods:
+              try:
+                  importlib.import_module(m)
+              except Exception as e:
+                  missing.append(f"{m}: {e}")
+          if not shutil.which("tesseract"):
+              missing.append("tesseract binary: not found in PATH")
+          try:
+              pytesseract.get_tesseract_version()
+          except Exception as e:
+              missing.append(f"pytesseract linkage: {e}")
+          if missing:
+              print("Missing/Issues:\n" + "\n".join(missing))
+              sys.exit(1)
+          print("All good: pytesseract and tesseract are ready")
           PY
 
       - name: Write service account json
