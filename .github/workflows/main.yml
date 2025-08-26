@@ -19,16 +19,34 @@ jobs:
       DEBUG: "1"                      # 詳細ログ（不要なら消してOK）
       SKIP_SHEETS: "0"
     steps:
-      - uses: actions/checkout@v4
+        - uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
+        - uses: actions/setup-python@v5
+          with:
+            python-version: "3.11"
 
-      - name: Install deps
-        run: pip install -r requirements_smart.txt
+        - name: Install deps
+          run: pip install -r requirements_smart.txt
 
-      - name: Write service account json
+        - name: Dependency smoke test
+          run: |
+            python -m pip check
+            python - <<'PY'
+            import importlib, sys
+            mods = ["PIL","PyPDF2","gspread","bs4","lxml","pdfminer","google.oauth2"]
+            missing = []
+            for m in mods:
+                try:
+                    importlib.import_module(m)
+                except Exception as e:
+                    missing.append(f"{m}: {e}")
+            if missing:
+                print("Missing modules:\n" + "\n".join(missing))
+                sys.exit(1)
+            print("All imports OK")
+            PY
+
+        - name: Write service account json
         # SecretのSERVICE_ACCOUNT_JSONをファイル化
         run: |
           python - <<'PY'
