@@ -178,9 +178,12 @@ def main():
     skip_breaker = int(os.getenv("SKIP_BREAKER", "60"))
     skip_streak = 0
 
-    def on_skip():
+    def on_skip(reason: str):
         nonlocal skip_streak
-        skip_streak += 1
+        if reason in ("no matcha evidence", "not US independent cafe"):
+            skip_streak += 1
+        else:
+            skip_streak = 0
         if skip_streak >= skip_breaker:
             save_json(SEEN_PATH, {"roots": sorted(seen_roots)})
             print("[STOP] too many consecutive skips")
@@ -202,23 +205,23 @@ def main():
             home = normalize_candidate_url(raw)
             if not home:
                 if debug: print(f"skip[{raw}]: blocked or empty")
-                if on_skip():
+                if on_skip("blocked or empty"):
                     return
                 continue
             if home in seen_roots:
                 if debug: print(f"skip[{home}]: already-seen root")
-                if on_skip():
+                if on_skip("already-seen root"):
                     return
                 continue
             if home in seen_homes:
                 if debug: print(f"skip[{home}]: already-in-sheet")
-                if on_skip():
+                if on_skip("already-in-sheet"):
                     return
                 continue
             if not snippet_ok(it, home):
                 if debug: print(f"skip[{home}]: snippet not matcha or platform")
                 seen_roots.add(home)
-                if on_skip():
+                if on_skip("snippet not matcha or platform"):
                     return
                 continue
 
@@ -228,7 +231,7 @@ def main():
             if not html:
                 if debug: print(f"skip[{home}]: no html")
                 seen_roots.add(home)
-                if on_skip():
+                if on_skip("no html"):
                     return
                 continue
 
@@ -242,21 +245,21 @@ def main():
             if not ok:
                 if debug: print(f"skip[{home}]: no matcha evidence")
                 seen_roots.add(home)
-                if on_skip():
+                if on_skip("no matcha evidence"):
                     return
                 continue
 
             if not is_us_cafe_site(home, html):
                 if debug: print(f"skip[{home}]: not US independent cafe")
                 seen_roots.add(home)
-                if on_skip():
+                if on_skip("not US independent cafe"):
                     return
                 continue
 
             if require_contact_on_snippet and not (ig or emails or form):
                 if debug: print(f"skip[{home}]: no contacts found")
                 seen_roots.add(home)
-                if on_skip():
+                if on_skip("no contacts found"):
                     return
                 continue
 
@@ -264,7 +267,7 @@ def main():
             if ig_key and ig_key in seen_instas:
                 if debug: print(f"skip[{home}]: dup insta")
                 seen_roots.add(home)
-                if on_skip():
+                if on_skip("dup insta"):
                     return
                 continue
 
@@ -297,7 +300,7 @@ def main():
                 print(f"[WARN] スプシ書き込み失敗: {home} -> {e}")
                 traceback.print_exc()
                 seen_roots.add(home)
-                if on_skip():
+                if on_skip("sheet write failure"):
                     return
     except Exception as e:
         if debug:
@@ -325,17 +328,17 @@ def main():
                 home = normalize_candidate_url(raw)
                 if not home:
                     if debug: print(f"skip[{raw}]: blocked or empty")
-                    if on_skip():
+                    if on_skip("blocked or empty"):
                         return
                     continue
                 if home in seen_roots:
                     if debug: print(f"skip[{home}]: already-seen root")
-                    if on_skip():
+                    if on_skip("already-seen root"):
                         return
                     continue
                 if home in seen_homes:
                     if debug: print(f"skip[{home}]: already-in-sheet")
-                    if on_skip():
+                    if on_skip("already-in-sheet"):
                         return
                     continue
 
@@ -343,7 +346,7 @@ def main():
                 if not snippet_ok(it, home):
                     if debug: print(f"skip[{home}]: snippet not matcha or platform")
                     seen_roots.add(home)
-                    if on_skip():
+                    if on_skip("snippet not matcha or platform"):
                         return
                     continue
 
@@ -353,7 +356,7 @@ def main():
                 if not html:
                     if debug: print(f"skip[{home}]: no html")
                     seen_roots.add(home)
-                    if on_skip():
+                    if on_skip("no html"):
                         return
                     continue
 
@@ -367,21 +370,21 @@ def main():
                 if not ok:
                     if debug: print(f"skip[{home}]: no matcha evidence")
                     seen_roots.add(home)
-                    if on_skip():
+                    if on_skip("no matcha evidence"):
                         return
                     continue
 
                 if not is_us_cafe_site(home, html):
                     if debug: print(f"skip[{home}]: not US independent cafe")
                     seen_roots.add(home)
-                    if on_skip():
+                    if on_skip("not US independent cafe"):
                         return
                     continue
 
                 if require_contact_on_snippet and not (ig or emails or form):
                     if debug: print(f"skip[{home}]: no contacts found")
                     seen_roots.add(home)
-                    if on_skip():
+                    if on_skip("no contacts found"):
                         return
                     continue
 
@@ -389,7 +392,7 @@ def main():
                 if ig_key and ig_key in seen_instas:
                     if debug: print(f"skip[{home}]: dup insta")
                     seen_roots.add(home)
-                    if on_skip():
+                    if on_skip("dup insta"):
                         return
                     continue
 
@@ -422,7 +425,7 @@ def main():
                     print(f"[WARN] スプシ書き込み失敗: {home} -> {e}")
                     traceback.print_exc()
                     seen_roots.add(home)
-                    if on_skip():
+                    if on_skip("sheet write failure"):
                         return
 
     save_json(SEEN_PATH, {"roots": sorted(seen_roots)})
