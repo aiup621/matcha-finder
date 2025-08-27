@@ -1,0 +1,11 @@
+{
+  "CA": ["Los Angeles", "San Francisco", "San Diego", "San Jose", "Sacramento"],
+  "NY": ["New York", "Brooklyn", "Queens", "Buffalo", "Rochester"],
+  "TX": ["Houston", "Dallas", "Austin", "San Antonio", "Fort Worth"],
+  "FL": ["Miami", "Orlando", "Tampa", "Jacksonville", "St Petersburg"],
+  "WA": ["Seattle", "Tacoma", "Bellevue"],
+  "MA": ["Boston", "Cambridge", "Worcester"],
+  "IL": ["Chicago", "Naperville", "Evanston"],
+  "CO": ["Denver", "Boulder", "Colorado Springs"],
+  "OR": ["Portland", "Eugene", "Salem"]
+}
