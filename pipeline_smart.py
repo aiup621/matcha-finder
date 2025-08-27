@@ -9,37 +9,12 @@ from light_extract import (
     extract_contacts, is_us_cafe_site, guess_brand, MATCHA_WORDS
 )
 from verify_matcha import verify_matcha
+from matcha_finder.domain_filters import EXCLUDE_SITES
 
 load_dotenv()
 
 SEEN_PATH = ".seen_roots.json"  # 既に検証したルートを保存（同じ結果の再検証を避ける）
 
-# Google CSE で除外したいノイズドメイン
-# Google CSE で除外したいノイズドメイン
-EXCLUDE_SITES = [
-    # SNS / UGC / メディア
-    "instagram.com", "tiktok.com", "reddit.com", "pinterest.com",
-    "linkedin.com", "x.com", "quora.com", "flickr.com", "goodreads.com",
-    "timeout.com", "eater.com", "theinfatuation.com", "sfchronicle.com",
-    "sacbee.com", "king5.com", "thenewstribune.com", "wanderlog.com",
-    "trip.com",
-    # デリバリー / モール / 求人 / 注文ホスティング等
-    "yelp.com", "ubereats.com", "doordash.com", "postmates.com",
-    "seamless.com", "grubhub.com", "mercato.com", "order.online",
-    "toasttab.com", "toast.site", "orderexperience.net", "appfront.app",
-    "res-menu.com", "craverapp.com", "square.site", "mapquest.com",
-    "indeed.com", "glassdoor.com",
-    # 量販 / EC / ティーブランド等
-    "amazon.com", "walmart.com", "samsclub.com", "sayweee.com",
-    "centralmarket.com", "uwajimaya.com", "jadeleafmatcha.com",
-    "isshikimatcha.com", "cuzenmatcha.com", "senbirdtea.com",
-    # チェーン店
-    "starbucks.com", "starbucksreserve.com", "bluebottlecoffee.com",
-    "peets.com", "dutchbros.com", "arabicacoffeeus.com",
-    "85cbakerycafe.com", "parisbaguette.com", "lalalandkindcafe.com",
-    "nanasgreentea.com", "nanasgreenteaus.com", "chachamatcha.com",
-    "kettl.co", "matchaful.com",
-]
 NEG_SITE_QUERY = " " + " ".join(f"-site:{d}" for d in EXCLUDE_SITES)
 
 # スニペット判定用（ベーカリー単独は除外）

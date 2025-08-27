@@ -3,21 +3,11 @@ import requests
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin, urlsplit, urlunsplit
 from pdfminer.high_level import extract_text as pdf_extract_text
+from matcha_finder.domain_filters import BLOCK_DOMAINS
 
 HDRS = {"User-Agent": "Mozilla/5.0 (compatible; MatchaFinder/1.0)"}
 TIMEOUT = float(os.getenv("HTTP_TIMEOUT", "10"))
 
-BLOCK_DOMAINS = {
-    # メディア/まとめ/配達/予約/大手SNS
-    "yelp.com","m.yelp.com","ubereats.com","doordash.com","grubhub.com","seamless.com",
-    "opentable.com","resy.com","sevenrooms.com","tripadvisor.com","pinterest.com",
-    "facebook.com","m.facebook.com","instagram.com","tiktok.com","reddit.com","vogue.com",
-    "theinfatuation.com","eater.com","la.eater.com","ny.eater.com","toasttab.com","square.site",
-    "linktr.ee","google.com","maps.google.com","order.online","order.alfred.la",
-    "vivinavi.com","vividnavigation.com","uber.com","pos.chowbus.com","chowbus.com",
-    "fantuanorder.com","appfront.app","mapquest.com","linkedin.com","x.com","amazon.com",
-    "walmart.com"
-}
 
 MATCHA_WORDS = re.compile(r'(matcha|抹茶|green\s*tea\s*latte|ceremonial\s*matcha|iced\s*matcha|dirty\s*matcha)', re.I)
 CAFE_HINTS   = re.compile(r'\b(cafe|coffee|tea|teahouse|bakery|boba|bubble\s*tea)\b', re.I)
