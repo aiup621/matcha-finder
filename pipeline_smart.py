@@ -6,8 +6,9 @@ from sheet_io_v2 import append_row_in_order, load_existing_keys
 from light_extract import (
     canon_url, http_get, html_text, is_media_or_platform,
     normalize_candidate_url, find_menu_links,
-    extract_contacts, is_us_cafe_site, guess_brand, MATCHA_WORDS
+    extract_contacts, is_us_cafe_site, guess_brand
 )
+from matcha_words import has_matcha_text
 from verify_matcha import verify_matcha
 
 load_dotenv()
@@ -79,7 +80,7 @@ def snippet_ok(item, home: str) -> bool:
     title = (item.get("title") or "") + " " + (item.get("snippet") or "")
     if is_media_or_platform(home):
         return False
-    return bool(MATCHA_WORDS.search(title) and SNIPPET_CAFE_HINTS.search(title))
+    return bool(has_matcha_text(title) and SNIPPET_CAFE_HINTS.search(title))
 
 def mini_site_matcha(cse: CSEClient, home: str) -> bool:
     # サイト内簡易検索（site:host matcha）で補強。予算が少ないので最大1クエリのみ。

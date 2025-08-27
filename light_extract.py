@@ -3,6 +3,7 @@ import requests
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin, urlsplit, urlunsplit
 from pdfminer.high_level import extract_text as pdf_extract_text
+from matcha_words import KW_POSITIVE
 
 HDRS = {"User-Agent": "Mozilla/5.0 (compatible; MatchaFinder/1.0)"}
 TIMEOUT = float(os.getenv("HTTP_TIMEOUT", "10"))
@@ -19,7 +20,7 @@ BLOCK_DOMAINS = {
     "walmart.com"
 }
 
-MATCHA_WORDS = re.compile(r'(matcha|抹茶|green\s*tea\s*latte|ceremonial\s*matcha|iced\s*matcha|dirty\s*matcha)', re.I)
+MATCHA_WORDS = re.compile("|".join(KW_POSITIVE), re.I)
 CAFE_HINTS   = re.compile(r'\b(cafe|coffee|tea|teahouse|bakery|boba|bubble\s*tea)\b', re.I)
 ZIP_RE       = re.compile(r'\b\d{5}(?:-\d{4})?\b')
 PHONE_RE     = re.compile(r'(?:\+1[\s\-.]?)?(?:\(?\d{3}\)?[\s\-.]?\d{3}[\s\-.]?\d{4})\b')
