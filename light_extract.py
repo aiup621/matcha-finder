@@ -1,10 +1,16 @@
-﻿import re, io, os, json
+﻿import re, io, os, json, time, random
 import requests
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin, urlsplit, urlunsplit
 from pdfminer.high_level import extract_text as pdf_extract_text
+from types import SimpleNamespace
 
-HDRS = {"User-Agent": "Mozilla/5.0 (compatible; MatchaFinder/1.0)"}
+USER_AGENTS = [
+    "Mozilla/5.0 (compatible; MatchaFinder/1.0)",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15",
+    "Mozilla/5.0 (X11; Linux x86_64; rv:115.0) Gecko/20100101 Firefox/115.0",
+]
 TIMEOUT = float(os.getenv("HTTP_TIMEOUT", "10"))
 
 BLOCK_DOMAINS = {
@@ -78,13 +84,37 @@ def normalize_candidate_url(u: str) -> str:
     except Exception:
         return ""
 
-def http_get(u: str, timeout=TIMEOUT):
+def http_get(u: str, timeout=TIMEOUT, max_retries: int = 3, backoff: float = 0.5):
+    """Lightweight HTTP GET with UA rotation and retry/backoff.
+
+    Falls back to a headless browser when repeated attempts yield empty HTML.
+    Returns an object similar to ``requests.Response`` or ``None`` on failure."""
+    for attempt in range(max_retries):
+        headers = {"User-Agent": random.choice(USER_AGENTS)}
+        try:
+            r = requests.get(u, headers=headers, timeout=timeout, allow_redirects=True)
+            if r.status_code < 400 and r.text:
+                return r
+        except requests.RequestException:
+            pass
+        time.sleep(backoff * (2 ** attempt))
+
+    # Fallback to headless browser (playwright) if still no HTML
     try:
-        r = requests.get(u, headers=HDRS, timeout=timeout, allow_redirects=True)
-        if r.status_code >= 400: return None
-        return r
-    except requests.RequestException:
-        return None
+        from playwright.sync_api import sync_playwright
+
+        with sync_playwright() as p:
+            browser = p.firefox.launch(headless=True)
+            context = browser.new_context(user_agent=random.choice(USER_AGENTS))
+            page = context.new_page()
+            page.goto(u, timeout=timeout * 1000)
+            content = page.content()
+            browser.close()
+        if content:
+            return SimpleNamespace(text=content, content=content.encode("utf-8"), status_code=200)
+    except Exception:
+        pass
+    return None
 
 def html_text(html: str) -> str:
     soup = BeautifulSoup(html, "lxml")
