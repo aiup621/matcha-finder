@@ -260,16 +260,93 @@ def is_chain_like(base: str, html: str) -> bool:
     addr_hits = len(re.findall(r"\d{1,5}\s+\w+\s+\w+|[A-Za-z]+,\s*[A-Z]{2}\s*\d{5}", html))
     return addr_hits >= 8
 
+US_STATES = {
+    "AL","AK","AZ","AR","CA","CO","CT","DE","FL","GA","HI","ID","IL","IN","IA",
+    "KS","KY","LA","ME","MD","MA","MI","MN","MS","MO","MT","NE","NV","NH","NJ",
+    "NM","NY","NC","ND","OH","OK","OR","PA","RI","SC","SD","TN","TX","UT","VT",
+    "VA","WA","WV","WI","WY","DC"
+}
+
+GEOCODE_CACHE = {}
+
+def geocode_city_state(city: str, state: str) -> bool:
+    key = f"{city},{state}".lower()
+    if key in GEOCODE_CACHE:
+        return GEOCODE_CACHE[key]
+    try:
+        r = requests.get(
+            "https://nominatim.openstreetmap.org/search",
+            params={"format": "json", "city": city, "state": state, "country": "USA", "limit": 1},
+            headers=HDRS,
+            timeout=5,
+        )
+        if r.status_code == 200:
+            data = r.json()
+            ok = bool(data) and "United States" in (data[0].get("display_name") or "")
+            GEOCODE_CACHE[key] = ok
+            return ok
+    except Exception:
+        pass
+    GEOCODE_CACHE[key] = False
+    return False
+
+def _extract_city_states(html: str):
+    soup = BeautifulSoup(html, "lxml")
+    pairs = set()
+    for addr in soup.find_all("address"):
+        t = addr.get_text(" ", strip=True)
+        for m in re.finditer(r"([A-Za-z .'-]+),\s*([A-Za-z]{2})", t):
+            city = m.group(1).strip()
+            state = m.group(2).upper()
+            if state in US_STATES:
+                pairs.add((city, state))
+    for addr in soup.find_all(attrs={"itemtype": re.compile("schema\.org/PostalAddress", re.I)}):
+        city = addr.find(attrs={"itemprop": "addressLocality"})
+        region = addr.find(attrs={"itemprop": "addressRegion"})
+        country = addr.find(attrs={"itemprop": "addressCountry"})
+        city = city.get_text(" ", strip=True) if city else ""
+        region = region.get_text(" ", strip=True).upper() if region else ""
+        country = country.get_text(" ", strip=True).upper() if country else ""
+        if region in US_STATES and (not country or "US" in country):
+            pairs.add((city, region))
+    for tag in soup.find_all("script", type=lambda x: x and "ld+json" in x):
+        try:
+            data = json.loads(tag.string or "")
+        except Exception:
+            continue
+        def walk(obj):
+            if isinstance(obj, dict):
+                if obj.get("@type") == "PostalAddress":
+                    city = obj.get("addressLocality", "")
+                    region = (obj.get("addressRegion") or "").upper()
+                    country = (obj.get("addressCountry") or "").upper()
+                    if region in US_STATES and (not country or "US" in country):
+                        pairs.add((city, region))
+                for v in obj.values():
+                    walk(v)
+            elif isinstance(obj, list):
+                for v in obj:
+                    walk(v)
+        walk(data)
+    return list(pairs)
+
 def is_us_cafe_site(base: str, html: str) -> bool:
     txt = html_text(html)
-    if not CAFE_HINTS.search(txt): return False
+    if not CAFE_HINTS.search(txt):
+        return False
     if re.search(r"\b(cart|checkout|collections?/|product(s)?/|woocommerce|shopify)\b", txt, re.I):
         if not (ZIP_RE.search(txt) or PHONE_RE.search(txt)):
             return False
-    if not (ZIP_RE.search(txt) or PHONE_RE.search(txt)): return False
-    if is_chain_like(base, html): return False
-    if is_media_or_platform(base): return False
-    return True
+    if ZIP_RE.search(txt) or PHONE_RE.search(txt):
+        if is_chain_like(base, html) or is_media_or_platform(base):
+            return False
+        return True
+    for city, state in _extract_city_states(html):
+        if geocode_city_state(city, state):
+            if is_chain_like(base, html) or is_media_or_platform(base):
+                return False
+            return True
+    return False
 
 def _domain_to_name(base: str) -> str:
     try:
