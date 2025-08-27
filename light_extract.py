@@ -1,4 +1,5 @@
 ﻿import re, io, os, json
+import logging
 import requests
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin, urlsplit, urlunsplit
@@ -23,6 +24,8 @@ MATCHA_WORDS = re.compile(r'(matcha|抹茶|green\s*tea\s*latte|ceremonial\s*matc
 CAFE_HINTS   = re.compile(r'\b(cafe|coffee|tea|teahouse|bakery|boba|bubble\s*tea)\b', re.I)
 ZIP_RE       = re.compile(r'\b\d{5}(?:-\d{4})?\b')
 PHONE_RE     = re.compile(r'(?:\+1[\s\-.]?)?(?:\(?\d{3}\)?[\s\-.]?\d{3}[\s\-.]?\d{4})\b')
+STATE_RE     = re.compile(r'\b(AL|AK|AZ|AR|CA|CO|CT|DE|FL|GA|HI|ID|IL|IN|IA|KS|KY|LA|ME|MD|MA|MI|MN|MS|MO|MT|NE|NV|NH|NJ|NM|NY|NC|ND|OH|OK|OR|PA|RI|SC|SD|TN|TX|UT|VT|VA|WA|WV|WI|WY|DC)\b', re.I)
+MENU_CONTACT_RE = re.compile(r'\b(menu|contact)\b', re.I)
 
 def canon_root(u: str) -> str:
     try:
@@ -262,13 +265,24 @@ def is_chain_like(base: str, html: str) -> bool:
 
 def is_us_cafe_site(base: str, html: str) -> bool:
     txt = html_text(html)
-    if not CAFE_HINTS.search(txt): return False
+    if not CAFE_HINTS.search(txt):
+        logging.debug("is_us_cafe_site: no cafe hints | url=%s", base)
+        return False
+    has_loc = ZIP_RE.search(txt) or PHONE_RE.search(txt)
+    state_with_menu = bool(STATE_RE.search(txt) and MENU_CONTACT_RE.search(txt))
     if re.search(r"\b(cart|checkout|collections?/|product(s)?/|woocommerce|shopify)\b", txt, re.I):
-        if not (ZIP_RE.search(txt) or PHONE_RE.search(txt)):
+        if not (has_loc or state_with_menu):
+            logging.debug("is_us_cafe_site: ecommerce without location info | url=%s", base)
             return False
-    if not (ZIP_RE.search(txt) or PHONE_RE.search(txt)): return False
-    if is_chain_like(base, html): return False
-    if is_media_or_platform(base): return False
+    if not (has_loc or state_with_menu):
+        logging.debug("is_us_cafe_site: missing zip/phone/state+menu/contact | url=%s", base)
+        return False
+    if is_chain_like(base, html):
+        logging.debug("is_us_cafe_site: chain-like | url=%s", base)
+        return False
+    if is_media_or_platform(base):
+        logging.debug("is_us_cafe_site: media/platform | url=%s", base)
+        return False
     return True
 
 def _domain_to_name(base: str) -> str:
