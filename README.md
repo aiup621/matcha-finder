@@ -46,6 +46,9 @@ intent terms and excludes common noise domains.  Configuration lives in
 | `BLOCKLIST_FILE` | Path to domain blocklist file. |
 | `INTENT_FILE` | Path to query intent configuration. |
 | `CLEAR_CACHE` | Clear `.cache` on start when set to `1`. |
+| `FORCE_ENGLISH_QUERIES` | Force query builder to emit ASCII-only queries (default `1`). |
+| `CACHE_BURST_THRESHOLD` | Cache hit ratio triggering temporary cache bypass (default `0.5`). |
+| `SEARCH_RADIUS_KM` | Base radius in kilometres for nearby city expansion (default `25`). |
 
 These options allow customising search behaviour without modifying the code.
 

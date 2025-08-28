@@ -14,6 +14,7 @@ from blocklist import load_domain_blocklist, is_blocked_domain
 from crawler_cache import load_cache, save_cache, has_seen, mark_seen, is_blocked_host
 from config_loader import load_settings
 from crawler.query_builder import QueryBuilder
+from crawler.control import RunState, format_stop
 from crawler.snippet_gate import accepts as snippet_accepts
 from persistent_cache import PersistentCache
 
@@ -134,45 +135,64 @@ def main():
     domain_blocklist = sorted(set(domain_blocklist + extra))
     cache = load_cache()
     qb = QueryBuilder(blocklist=domain_blocklist)
+    qb.set_phase(1)
     pc = PersistentCache()
-    skip_streak = 0
-    added = 0
     hits = 0
     skip_reasons: dict[str, int] = {}
     blocked_domains: dict[str, int] = {}
-    cse = CSEClient(api_key, cx, max_daily=int(os.getenv("MAX_DAILY_CSE_QUERIES", "100")))
     max_queries = int(os.getenv("MAX_QUERIES_PER_RUN", "120"))
-    total_queries = 0
+    search_radius = float(os.getenv("SEARCH_RADIUS_KM", "25"))
+    state = RunState(
+        target=target,
+        max_queries=max_queries,
+        max_rotations=int(os.getenv("MAX_ROTATIONS_PER_RUN", "4")),
+        skip_rotate_threshold=int(os.getenv("SKIP_ROTATE_THRESHOLD", "20")),
+        cache_burst_threshold=float(os.getenv("CACHE_BURST_THRESHOLD", "0.5")),
+    )
+    cse = CSEClient(api_key, cx, max_daily=int(os.getenv("MAX_DAILY_CSE_QUERIES", "100")))
     queries = qb.build_queries()
     qi = 0
 
     def on_skip(url: str, reason: str):
-        nonlocal skip_streak, queries, qi
+        nonlocal queries, qi
+        state.record_skip(reason)
         rotated = qb.record_skip()
+        if state.should_rotate():
+            rotated = True
         pc.record(url, "skip", reason)
         skip_reasons[reason] = skip_reasons.get(reason, 0) + 1
-        skip_streak += 1
         if reason == "blocked_domain":
-            host = canon_url(url).split("//")[-1].split("/")[0]
+            host = canon_url(url).split("//")[-1].split("/")
+            host = host[0]
             blocked_domains[host] = blocked_domains.get(host, 0) + 1
         if rotated:
-            print(f"[ROTATE] consecutive_skips={qb.rotate_threshold}")
-            skip_streak = 0
+            phase = state.escalate_phase()
+            qb.set_phase(phase)
+            print(f"[ROTATE] consecutive_skips={state.skip_rotate_threshold} phase={phase}")
             queries = qb.build_queries()
             qi = 0
         return False
 
     def on_add(url: str, name: str):
-        nonlocal skip_streak
-        skip_streak = 0
+        state.record_add()
         qb.record_hit()
         pc.record(url, "add")
         pc.record_add(url, name)
 
+    stop = False
+    reason = ""
     try:
-        while qi < len(queries) and total_queries < max_queries:
+        while state.queries < max_queries and not stop:
+            if qi >= len(queries):
+                phase = state.escalate_phase()
+                qb.set_phase(phase)
+                queries = qb.build_queries()
+                qi = 0
+                if not queries:
+                    stop, reason = state.should_stop(no_candidates=True)
+                    break
             q = queries[qi]
-            total_queries += 1
+            state.queries += 1
             for it in iter_cse_items(cse, q, num=10, start=1, max_pages=3):
                 raw = (it.get("link") or "").strip()
                 home = normalize_candidate_url(raw)
@@ -281,18 +301,17 @@ def main():
                 }
                 try:
                     append_row_in_order(sheet_id, ws_name, row)
-                    added += 1
                     on_add(home, brand)
                     seen_homes.add(home)
                     if ig_key:
                         seen_instas.add(ig_key)
                     seen_roots.add(home)
-                    print(
-                        f"[ADD] {brand} -> {home} contacts: ig={ig or '-'} email={(emails[0] if emails else '-')} form={form or '-'}" " （累計 {added}）"
-                    )
-                    if added >= target:
+                    print(f"[ADD] {brand} -> {home} contacts: ig={ig or '-'} email={(emails[0] if emails else '-')} form={form or '-'} (累計 added={state.added})")
+                    stop, reason = state.should_stop()
+                    if stop:
                         save_json(SEEN_PATH, {"roots": sorted(seen_roots)})
-                        print("[DONE] 目標件数に到達。終了します。")
+                        save_cache(cache)
+                        print(format_stop(reason, state))
                         return
                 except Exception as e:
                     print(f"[WARN] スプシ書き込み失敗: {home} -> {e}")
@@ -301,14 +320,18 @@ def main():
                     if on_skip(home, "sheet write failure"):
                         return
             qi += 1
+            stop, reason = state.should_stop()
+            if stop:
+                break
     except Exception as e:
         if debug:
             print(f"search_iter error: {e}")
 
     save_json(SEEN_PATH, {"roots": sorted(seen_roots)})
     save_cache(cache)
-    reason = " because no accepted candidates after %d rotations" % qb.rotations if added == 0 else ""
-    print(f"[END] 追加 {added} 件で終了{reason}")
+    if not reason:
+        stop, reason = state.should_stop()
+    print(format_stop(reason, state))
     if skip_reasons:
         print("[SUMMARY] skip reasons:")
         for k, v in sorted(skip_reasons.items(), key=lambda x: -x[1]):
@@ -321,9 +344,9 @@ def main():
     if summary:
         with open(summary, "a", encoding="utf-8") as f:
             f.write("## Crawl Summary\n")
-            f.write(f"- Added: {added}\n")
+            f.write(f"- Added: {state.added}\n")
             f.write(f"- Hits: {hits}\n")
-            f.write(f"- Queries: {total_queries}\n")
+            f.write(f"- Queries: {state.queries}\n")
             total = sum(skip_reasons.values())
             f.write(f"- Total Skips: {total}\n")
             for k, v in sorted(skip_reasons.items(), key=lambda x: -x[1])[:10]:
