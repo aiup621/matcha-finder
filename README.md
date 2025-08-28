@@ -23,23 +23,26 @@ Before fetching a URL the crawler checks `config/domain_blocklist.txt` and a
 persistent cache stored under `.cache/`.  Domains listed in the blocklist or
 previously marked as blocked are skipped immediately.  The cache also stores
 hosts and URLs that have already been visited so that re-runs avoid processing
-the same sites.  The cache persists between GitHub Actions runs thanks to
-`actions/cache`.
+the same sites.  The cache persists between runs using `actions/cache`, and a
+SQLite database `.cache/crawler.sqlite` stores visit results and skip reasons
+for long-term avoidance.
 
 Set `CLEAR_CACHE=1` to ignore existing cache data and rebuild it from scratch.
 
 ## Query tuning
 
-Search queries are now built via `build_query()`, which injects intent terms and
-excludes common noise domains.  The function combines seed information such as
-`city` or `state` with the intent boost terms
-(`latte`, `menu`, `hours`, `about`, `story`, `店舗情報`, `メニュー`).  You can customise
-the negative sites and intent terms by editing `config/settings.yaml`.
+Search queries are now built via `smart_search.QueryBuilder`, which injects
+intent terms and excludes common noise domains.  Configuration lives in
+`config/query_intent.json` and can be overridden via environment variables.
 
-### Options
+### Environment variables
 
-* `SKIP_THRESHOLD` – rotate to the next seed after this many consecutive skips
-  (default 15).
-* `CLEAR_CACHE` – clear `.cache` on start when set to `1`.
+| Variable | Description |
+| --- | --- |
+| `EXCLUDE_DOMAINS` | Comma-separated extra domains to block before fetching. |
+| `SKIP_ROTATE_THRESHOLD` | Consecutive skip count before query rotation (default 25). |
+| `BLOCKLIST_FILE` | Path to domain blocklist file. |
+| `INTENT_FILE` | Path to query intent configuration. |
+| `CLEAR_CACHE` | Clear `.cache` on start when set to `1`. |
 
-The blocklist and intent settings are stored in `config/settings.yaml`.
+These options allow customising search behaviour without modifying the code.
