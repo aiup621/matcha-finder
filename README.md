@@ -40,9 +40,22 @@ intent terms and excludes common noise domains.  Configuration lives in
 | Variable | Description |
 | --- | --- |
 | `EXCLUDE_DOMAINS` | Comma-separated extra domains to block before fetching. |
-| `SKIP_ROTATE_THRESHOLD` | Consecutive skip count before query rotation (default 25). |
+| `SKIP_ROTATE_THRESHOLD` | Consecutive skip count before query rotation (default 20). |
+| `MAX_ROTATIONS_PER_RUN` | Maximum number of query rotations per run (default 4). |
+| `CITY_SEEDS` | Optional comma-separated list of city, state pairs. |
 | `BLOCKLIST_FILE` | Path to domain blocklist file. |
 | `INTENT_FILE` | Path to query intent configuration. |
 | `CLEAR_CACHE` | Clear `.cache` on start when set to `1`. |
 
 These options allow customising search behaviour without modifying the code.
+
+### Rotation behaviour
+
+`pipeline_smart.py` rotates search queries when consecutive skips exceed
+`SKIP_ROTATE_THRESHOLD`. Rotations cycle through cities, add synonym terms and
+optionally tighten context to `menu|hours|contact`. The number of rotations is
+capped by `MAX_ROTATIONS_PER_RUN`.
+
+Runs may end with `0` additions if all rotations fail to produce acceptable
+candidates. Adjust `SKIP_ROTATE_THRESHOLD` or provide a custom `CITY_SEEDS` list
+to explore different regions.
