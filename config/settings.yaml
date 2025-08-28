@@ -1,0 +1,16 @@
+SKIP_THRESHOLD: 15
+INTENT_TERMS:
+  - latte
+  - menu
+  - hours
+  - about
+  - story
+  - "店舗情報"
+  - "メニュー"
+NEGATIVE_SITES:
+  - facebook.com
+  - square.site
+  - mapquest.com
+  - toasttab.com
+  - westfield.com
+  - rockefellercenter.com

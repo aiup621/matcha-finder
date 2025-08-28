@@ -11,6 +11,13 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+      - name: Restore crawler cache
+        uses: actions/cache@v4
+        with:
+            path: .cache
+            key: cache-matcha-${{ runner.os }}-${{ hashFiles('requirements.txt', 'config/**') }}-${{ env.CACHE_VERSION || 'v1' }}
+            restore-keys: |
+              cache-matcha-${{ runner.os }}-
       - run: pip install -r requirements.txt
       - run: playwright install --with-deps chromium
       - name: Restore service account
@@ -23,3 +30,9 @@ jobs:
           SHEET_ID: ${{ secrets.SHEET_ID }}
           SKIP_SHEETS: "0"
         run: python pipeline.py
+      - name: Save crawler cache
+        if: always()
+        uses: actions/cache@v4
+        with:
+            path: .cache
+            key: cache-matcha-${{ runner.os }}-${{ hashFiles('requirements.txt', 'config/**') }}-${{ env.CACHE_VERSION || 'v1' }}
