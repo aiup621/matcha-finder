@@ -83,5 +83,5 @@ ps.append_row_in_order = lambda sheet, ws, row: print('[WRITE]', row)
 ps.load_existing_keys = lambda sheet, ws: {'homes': set(), 'instas': set()}
 
 # 実行
-ps.main()
+ps.main([])
 print('SMOKE TEST OK')

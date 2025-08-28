@@ -54,9 +54,17 @@ class QueryBuilder:
         max_rotations: int | None = None,
         enforce_english: bool | None = None,
     ) -> None:
-        env_force = bool(int(os.getenv("FORCE_ENGLISH_QUERIES", "1")))
+        env_force = bool(int(os.getenv("FORCE_ENGLISH_QUERIES", "0")))
         self.enforce_english = env_force if enforce_english is None else enforce_english
-        self.blocklist = [self._to_ascii(s.strip().lower()) for s in (blocklist or []) if s.strip()]
+        block_env = os.getenv("EXCLUDE_DOMAINS", "")
+        block_extra = os.getenv("EXCLUDE_DOMAINS_EXTRA", "")
+        env_blocks = [
+            s.strip().lower()
+            for s in f"{block_env},{block_extra}".split(",")
+            if s.strip()
+        ]
+        combined = list(blocklist or []) + env_blocks
+        self.blocklist = [self._to_ascii(s.strip().lower()) for s in combined if s.strip()]
         seed_env = os.getenv("CITY_SEEDS")
         if seed_env:
             seeds = [self._to_ascii(s.strip()) for s in seed_env.split(",") if s.strip()]
@@ -67,7 +75,9 @@ class QueryBuilder:
         self.city_idx = 0
         self.base_terms: List[str] = [self._to_ascii(t) for t in BASE_TERMS_CORE]
         self.context_boosters: List[str] = [self._to_ascii(t) for t in CONTEXT_BOOSTERS]
-        self.rotate_threshold = int(os.getenv("SKIP_ROTATE_THRESHOLD", rotate_threshold or 20))
+        self.rotate_threshold = int(
+            os.getenv("SKIP_ROTATE_THRESHOLD", rotate_threshold or 8)
+        )
         self.max_rotations = int(os.getenv("MAX_ROTATIONS_PER_RUN", max_rotations or 4))
         self.consec_skips = 0
         self.rotations = 0
