@@ -1,0 +1,9 @@
+facebook.com
+*.square.site
+mapquest.com
+toasttab.com
+westfield.com
+rockefellercenter.com
+*.chowbus.com
+*.seamless.com
+*.order.online

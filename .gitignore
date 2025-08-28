@@ -8,6 +8,7 @@ service_account.json
 .cse_usage.json
 .seen_roots.json
 .query_yield.json
+.cache/
 
 # ツール設定
 .vscode/

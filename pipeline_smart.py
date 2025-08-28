@@ -1,4 +1,4 @@
-﻿import os, json, traceback, re
+﻿import os, json, traceback, re, logging
 import requests
 from dotenv import load_dotenv
 from cse_client import CSEClient, DailyQuotaExceeded
@@ -9,6 +9,10 @@ from light_extract import (
     extract_contacts, is_us_cafe_site, guess_brand, MATCHA_WORDS
 )
 from verify_matcha import verify_matcha
+from blocklist import load_domain_blocklist, is_blocked_domain
+from query_builder import build_query
+from crawler_cache import load_cache, save_cache, has_seen, mark_seen, is_blocked_host
+from config_loader import load_settings
 
 load_dotenv()
 
@@ -125,30 +129,27 @@ def iter_cse_items(cse: CSEClient, query: str, num=10, start=1, max_pages=1):
         s += num
 
 def default_queries():
-    # US に寄せるクエリ（繰り返しでもバリエーションが出るようランダム化）
-    base = [
-        f"(\"matcha latte\" OR \"matcha menu\" OR \"抹茶 ラテ\" OR \"抹茶 メニュー\") (cafe OR \"coffee house\" OR \"tea house\" OR bakery) {{kw}}{NEG_SITE_QUERY}"
-    ]
-    states = [s.strip() for s in os.getenv("STATES","CA,NY,TX,FL,WA,MA,IL,CO,OR").split(",") if s.strip()]
+    """Return a list of CSE queries built from state and city seeds."""
+    states = [s.strip() for s in os.getenv("STATES", "CA,NY,TX,FL,WA,MA,IL,CO,OR").split(",") if s.strip()]
     cities = {
-        "CA": ["Los Angeles","San Francisco","San Diego","San Jose","Sacramento"],
-        "NY": ["New York","Brooklyn","Queens","Buffalo","Rochester"],
-        "TX": ["Houston","Dallas","Austin","San Antonio","Fort Worth"],
-        "FL": ["Miami","Orlando","Tampa","Jacksonville","St Petersburg"],
-        "WA": ["Seattle","Tacoma","Bellevue"],
-        "MA": ["Boston","Cambridge","Worcester"],
-        "IL": ["Chicago","Naperville","Evanston"],
-        "CO": ["Denver","Boulder","Colorado Springs"],
-        "OR": ["Portland","Eugene","Salem"],
+        "CA": ["Los Angeles", "San Francisco", "San Diego", "San Jose", "Sacramento"],
+        "NY": ["New York", "Brooklyn", "Queens", "Buffalo", "Rochester"],
+        "TX": ["Houston", "Dallas", "Austin", "San Antonio", "Fort Worth"],
+        "FL": ["Miami", "Orlando", "Tampa", "Jacksonville", "St Petersburg"],
+        "WA": ["Seattle", "Tacoma", "Bellevue"],
+        "MA": ["Boston", "Cambridge", "Worcester"],
+        "IL": ["Chicago", "Naperville", "Evanston"],
+        "CO": ["Denver", "Boulder", "Colorado Springs"],
+        "OR": ["Portland", "Eugene", "Salem"],
     }
-    out=[]
+    seeds = []
     for st in states:
-        out += [tmpl.format(kw=st) for tmpl in base]
+        seeds.append({"state": st})
         for city in cities.get(st, [])[:5]:
-            out += [tmpl.format(kw=f"{city} {st}") for tmpl in base]
+            seeds.append({"city": city, "state": st})
     import random
-    random.shuffle(out)
-    return out
+    random.shuffle(seeds)
+    return [build_query(seed) for seed in seeds]
 
 def main():
     api_key = os.getenv("GOOGLE_API_KEY")
@@ -164,19 +165,23 @@ def main():
     check_cse_quota(api_key, cx)
 
     existing = load_existing_keys(sheet_id, ws_name)
-    seen_homes  = set(existing["homes"])
+    seen_homes = set(existing["homes"])
     seen_instas = set(existing["instas"])
 
     seen = load_json(SEEN_PATH, {"roots": []})
     seen_roots = set(seen.get("roots", []))
 
-    added = 0
-    cse = CSEClient(api_key, cx, max_daily=int(os.getenv("MAX_DAILY_CSE_QUERIES","100")))
-    # Limit how many CSE queries are issued per run. Can be overridden via
-    # the MAX_QUERIES_PER_RUN environment variable.
-    max_queries = int(os.getenv("MAX_QUERIES_PER_RUN", "120"))
-    skip_breaker = int(os.getenv("SKIP_BREAKER", "60"))
+    # configuration and caches
+    settings = load_settings()
+    domain_blocklist = load_domain_blocklist("config/domain_blocklist.txt")
+    cache = load_cache()
+    skip_breaker = int(os.getenv("SKIP_THRESHOLD", settings.get("SKIP_THRESHOLD", 15)))
     skip_streak = 0
+    added = 0
+    cse = CSEClient(api_key, cx, max_daily=int(os.getenv("MAX_DAILY_CSE_QUERIES", "100")))
+    # Limit how many CSE queries are issued per run. Can be overridden via the
+    # MAX_QUERIES_PER_RUN environment variable.
+    max_queries = int(os.getenv("MAX_QUERIES_PER_RUN", "120"))
 
     def on_skip(reason: str):
         nonlocal skip_streak
@@ -195,10 +200,8 @@ def main():
         skip_streak = 0
 
     # まず広域クエリをページ巡回しながら収集
-    wide_q = os.getenv(
-        "WIDE_QUERY",
-        f"matcha cafe{NEG_SITE_QUERY}",
-    )
+    # base query covering nationwide search
+    wide_q = os.getenv("WIDE_QUERY", build_query({"keywords": "cafe"}))
     try:
         for it in iter_cse_items(cse, wide_q, num=10, start=1, max_pages=3):
             raw = (it.get("link") or "").strip()
@@ -208,6 +211,20 @@ def main():
                 if on_skip("blocked or empty"):
                     return
                 continue
+            host = canon_url(home).split("//")[-1].split("/")[0]
+            if is_blocked_domain(home, domain_blocklist) or is_blocked_host(cache, host):
+                if debug: print(f"skip[{home}]: blocked-domain")
+                mark_seen(cache, home)
+                if on_skip("blocked-domain"):
+                    save_cache(cache)
+                    return
+                continue
+            if has_seen(cache, home):
+                if debug: print(f"skip[{home}]: cache-hit")
+                if on_skip("cache-hit"):
+                    return
+                continue
+            mark_seen(cache, home)
             if home in seen_roots:
                 if debug: print(f"skip[{home}]: already-seen root")
                 if on_skip("already-seen root"):
@@ -331,6 +348,20 @@ def main():
                     if on_skip("blocked or empty"):
                         return
                     continue
+                host = canon_url(home).split("//")[-1].split("/")[0]
+                if is_blocked_domain(home, domain_blocklist) or is_blocked_host(cache, host):
+                    if debug: print(f"skip[{home}]: blocked-domain")
+                    mark_seen(cache, home)
+                    if on_skip("blocked-domain"):
+                        save_cache(cache)
+                        return
+                    continue
+                if has_seen(cache, home):
+                    if debug: print(f"skip[{home}]: cache-hit")
+                    if on_skip("cache-hit"):
+                        return
+                    continue
+                mark_seen(cache, home)
                 if home in seen_roots:
                     if debug: print(f"skip[{home}]: already-seen root")
                     if on_skip("already-seen root"):
@@ -429,6 +460,7 @@ def main():
                         return
 
     save_json(SEEN_PATH, {"roots": sorted(seen_roots)})
+    save_cache(cache)
     print(f"[END] 追加 {added} 件で終了")
 
 

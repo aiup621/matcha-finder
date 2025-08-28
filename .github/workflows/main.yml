@@ -22,6 +22,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Restore crawler cache
+        uses: actions/cache@v4
+        with:
+          path: .cache
+          key: cache-matcha-${{ runner.os }}-${{ hashFiles('requirements_smart.txt', 'config/**') }}-${{ env.CACHE_VERSION || 'v1' }}
+          restore-keys: |
+            cache-matcha-${{ runner.os }}-
+
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
@@ -88,3 +96,10 @@ jobs:
 
       - name: Run pipeline (up to 3)
         run: python -u pipeline_smart.py
+
+      - name: Save crawler cache
+        if: always()
+        uses: actions/cache@v4
+        with:
+          path: .cache
+          key: cache-matcha-${{ runner.os }}-${{ hashFiles('requirements_smart.txt', 'config/**') }}-${{ env.CACHE_VERSION || 'v1' }}
