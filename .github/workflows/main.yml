@@ -19,6 +19,9 @@ jobs:
       DEBUG: "1"                      # 詳細ログ（不要なら消してOK）
       SKIP_SHEETS: "0"
       MAX_QUERIES_PER_RUN: "800"      # 1回の実行での検索上限
+      EXCLUDE_DOMAINS: facebook.com,mapquest.com,indeed.com,axios.com,lemon8-app.com,tripadvisor.com,yelp.com,opentable.com,ubereats.com,grubhub.com,doordash.com,eventbrite.com,tiktok.com,pinterest.com
+      SKIP_ROTATE_THRESHOLD: 20
+      MAX_ROTATIONS_PER_RUN: 4
     steps:
       - uses: actions/checkout@v4
 

@@ -1,15 +1,23 @@
 import sys, pathlib
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[1]))
 
-from smart_search import QueryBuilder
+from crawler.query_builder import QueryBuilder
 
 
-def test_exclude_sites_and_trim():
-    qb = QueryBuilder()
-    q = qb.build()
-    for site in qb.exclude_sites:
-        assert f"-site:{site}" in q
-    # Make query artificially long
-    qb.exclude_sites = [f"example{i}.com" for i in range(50)]
-    q2 = qb.build()
-    assert len(q2) <= 250
+def test_queries_ascii_and_blocklist():
+    qb = QueryBuilder(blocklist=["facebook.com", "mapquest.com"])
+    queries = qb.build_queries()
+    assert 8 <= len(queries) <= 12
+    assert any("-site:facebook.com" in q for q in queries)
+    for q in queries:
+        q.encode("ascii")
+        assert len(q) <= 256
+        assert any(term in q for term in [
+            "matcha latte",
+            "matcha cafe",
+            "matcha menu",
+            "green tea latte",
+            "ceremonial matcha",
+        ])
+        if len(q) < 256:
+            assert "-site:" in q
