@@ -112,7 +112,7 @@ def test_pipeline_smart_entrypoint(tmp_path):
             "GOOGLE_API_KEY": "dummy",
             "GOOGLE_CX": "dummy",
             "SHEET_ID": "dummy",
-            "STATES": "",  # no queries -> quick exit
+            "MAX_QUERIES_PER_RUN": "1",  # quick exit
             "PYTHONPATH": str(repo_root),
         }
     )
@@ -125,5 +125,5 @@ def test_pipeline_smart_entrypoint(tmp_path):
         env=env,
     )
 
-    assert "[END]" in result.stdout
+    assert "[STOP]" in result.stdout
     assert result.returncode == 0

@@ -10,6 +10,8 @@ BASE_TERMS_CORE: List[str] = [
 BASE_TERMS_SYNONYMS: List[str] = [
     "green tea latte",
     "ceremonial matcha",
+    "matcha soft serve",
+    "house-made matcha",
 ]
 CONTEXT_BOOSTERS: List[str] = [
     "menu",
@@ -35,7 +37,13 @@ def ascii_only(text: str) -> str:
     return text.encode("ascii", "ignore").decode()
 
 class QueryBuilder:
-    """Build English-only queries with rotation support."""
+    """Build English-only queries with rotation support.
+
+    The builder is intentionally minimal; higher level control such as
+    escalation phases is handled by :class:`RunState` in
+    ``crawler.control``.  ``QueryBuilder`` simply exposes hooks to
+    modify the base terms used for query construction.
+    """
 
     def __init__(
         self,
@@ -44,25 +52,28 @@ class QueryBuilder:
         city_seeds: Iterable[str] | None = None,
         rotate_threshold: int | None = None,
         max_rotations: int | None = None,
+        enforce_english: bool | None = None,
     ) -> None:
-        self.blocklist = [ascii_only(s.strip().lower()) for s in (blocklist or []) if s.strip()]
+        env_force = bool(int(os.getenv("FORCE_ENGLISH_QUERIES", "1")))
+        self.enforce_english = env_force if enforce_english is None else enforce_english
+        self.blocklist = [self._to_ascii(s.strip().lower()) for s in (blocklist or []) if s.strip()]
         seed_env = os.getenv("CITY_SEEDS")
         if seed_env:
-            seeds = [ascii_only(s.strip()) for s in seed_env.split(",") if s.strip()]
+            seeds = [self._to_ascii(s.strip()) for s in seed_env.split(",") if s.strip()]
         else:
             seeds = list(city_seeds) if city_seeds else DEFAULT_SEEDS
-            seeds = [ascii_only(s) for s in seeds]
+            seeds = [self._to_ascii(s) for s in seeds]
         self.cities: List[str] = seeds
         self.city_idx = 0
-        self.base_terms: List[str] = [ascii_only(t) for t in BASE_TERMS_CORE]
-        self.synonyms_added = False
-        self.context_boosters: List[str] = [ascii_only(t) for t in CONTEXT_BOOSTERS]
-        self.force_tight_context = False
+        self.base_terms: List[str] = [self._to_ascii(t) for t in BASE_TERMS_CORE]
+        self.context_boosters: List[str] = [self._to_ascii(t) for t in CONTEXT_BOOSTERS]
         self.rotate_threshold = int(os.getenv("SKIP_ROTATE_THRESHOLD", rotate_threshold or 20))
         self.max_rotations = int(os.getenv("MAX_ROTATIONS_PER_RUN", max_rotations or 4))
         self.consec_skips = 0
         self.rotations = 0
         self.rotation_log: List[Tuple[str, str, str]] = []
+        self.include_synonyms = False
+        self.force_tight_context = False
 
     # -------- query construction ---------
     def _neg_sites(self, current: str) -> str:
@@ -79,8 +90,19 @@ class QueryBuilder:
             return f"{q} {BUSINESS_SITES}"
         return q
 
+    def _to_ascii(self, text: str) -> str:
+        return ascii_only(text) if self.enforce_english else text
+
+    def set_phase(self, phase: int) -> None:
+        """Adjust internal flags according to escalation phase."""
+        self.base_terms = [self._to_ascii(t) for t in BASE_TERMS_CORE]
+        if phase >= 2:
+            self.base_terms.extend(self._to_ascii(t) for t in BASE_TERMS_SYNONYMS)
+        self.include_synonyms = phase >= 2
+        self.force_tight_context = phase >= 3
+
     def build_queries(self) -> List[str]:
-        city = ascii_only(self.current_city())
+        city = self._to_ascii(self.current_city())
         patterns = [
             lambda b: f'"{b}" AND (menu OR hours OR contact)',
             lambda b: f'"{b}" AND menu',
@@ -100,13 +122,13 @@ class QueryBuilder:
                 neg = self._neg_sites(core)
                 q = core if not neg else f"{core} {neg}"
                 q = self._apply_business_sites(q)
-                q = ascii_only(q)[:256]
+                q = self._to_ascii(q)[:256]
                 assert len(q) <= 256
                 queries.append(q)
             if len(queries) >= 12:
                 break
         # ensure uniqueness
-        uniq = []
+        uniq: List[str] = []
         seen = set()
         for q in queries:
             if q not in seen:
@@ -133,21 +155,12 @@ class QueryBuilder:
     def _rotate(self) -> bool:
         if self.rotations >= self.max_rotations:
             return False
-        order = ["swap_city", "expand_synonyms", "tighten_context", "swap_city"]
-        action = order[self.rotations % len(order)]
+        action = "swap_city"
         from_city = self.current_city()
-        if action == "swap_city" and self.cities:
+        if self.cities:
             self.city_idx = (self.city_idx + 1) % len(self.cities)
-            to_city = self.current_city()
-            self.rotation_log.append((action, from_city, to_city))
-        elif action == "expand_synonyms":
-            if not self.synonyms_added:
-                self.base_terms.extend(ascii_only(t) for t in BASE_TERMS_SYNONYMS)
-                self.synonyms_added = True
-            self.rotation_log.append((action, from_city, from_city))
-        elif action == "tighten_context":
-            self.force_tight_context = True
-            self.rotation_log.append((action, from_city, from_city))
+        to_city = self.current_city()
+        self.rotation_log.append((action, from_city, to_city))
         self.rotations += 1
         return True
 
