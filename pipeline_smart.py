@@ -1,6 +1,7 @@
 import os, json, traceback
 import re
 import requests
+import argparse
 from dotenv import load_dotenv
 from cse_client import CSEClient, DailyQuotaExceeded
 from sheet_io_v2 import append_row_in_order, load_existing_keys
@@ -17,6 +18,8 @@ from crawler.query_builder import QueryBuilder
 from crawler.control import RunState, format_stop
 from crawler.snippet_gate import accepts as snippet_accepts
 from persistent_cache import PersistentCache
+from cache_utils import Cache, EnvConfig
+from runtime_blocklist import RuntimeBlockList, requires_js
 
 load_dotenv()
 
@@ -55,15 +58,18 @@ def check_cse_quota(api_key: str, cx: str):
         raise SystemExit(1)
 
 
-def _is_html(url: str) -> bool:
+def _is_html(url: str) -> tuple[bool, int]:
     try:
         r = requests.head(url, timeout=5, allow_redirects=True)
-        if r.status_code >= 400:
-            return False
+        status = r.status_code
+        if status in (401, 403, 429):
+            return False, status
+        if status >= 400:
+            return False, status
         ct = r.headers.get("content-type", "").lower()
-        return ct.startswith("text/html")
+        return ct.startswith("text/html"), status
     except requests.RequestException:
-        return False
+        return False, 0
 
 
 def mini_site_matcha(cse: CSEClient, home: str) -> bool:
@@ -108,7 +114,11 @@ def iter_cse_items(cse: CSEClient, query: str, num=10, start=1, max_pages=1):
         s += num
 
 
-def main():
+def main(argv: list[str] | None = None):
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--cache-bust", action="store_true")
+    args = parser.parse_args(argv)
+    env = EnvConfig()
     api_key = os.getenv("GOOGLE_API_KEY")
     cx = os.getenv("GOOGLE_CX")
     sheet_id = os.getenv("SHEET_ID")
@@ -131,12 +141,16 @@ def main():
     settings = load_settings()
     blocklist_path = os.getenv("BLOCKLIST_FILE", "config/domain_blocklist.txt")
     domain_blocklist = load_domain_blocklist(blocklist_path)
-    extra = [d.strip() for d in os.getenv("EXCLUDE_DOMAINS", "").split(",") if d.strip()]
+    extra_env = os.getenv("EXCLUDE_DOMAINS", "")
+    extra_env2 = os.getenv("EXCLUDE_DOMAINS_EXTRA", "")
+    extra = [d.strip() for d in f"{extra_env},{extra_env2}".split(",") if d.strip()]
     domain_blocklist = sorted(set(domain_blocklist + extra))
     cache = load_cache()
     qb = QueryBuilder(blocklist=domain_blocklist)
     qb.set_phase(1)
     pc = PersistentCache()
+    cache_wrap = Cache(env, phase=1, cache_bust=args.cache_bust)
+    rt_block = RuntimeBlockList()
     hits = 0
     skip_reasons: dict[str, int] = {}
     blocked_domains: dict[str, int] = {}
@@ -146,7 +160,7 @@ def main():
         target=target,
         max_queries=max_queries,
         max_rotations=int(os.getenv("MAX_ROTATIONS_PER_RUN", "4")),
-        skip_rotate_threshold=int(os.getenv("SKIP_ROTATE_THRESHOLD", "20")),
+        skip_rotate_threshold=env.SKIP_ROTATE_THRESHOLD,
         cache_burst_threshold=float(os.getenv("CACHE_BURST_THRESHOLD", "0.5")),
     )
     cse = CSEClient(api_key, cx, max_daily=int(os.getenv("MAX_DAILY_CSE_QUERIES", "100")))
@@ -154,12 +168,13 @@ def main():
     qi = 0
 
     def on_skip(url: str, reason: str):
-        nonlocal queries, qi
+        nonlocal queries, qi, cache_wrap
         state.record_skip(reason)
         rotated = qb.record_skip()
         if state.should_rotate():
             rotated = True
         pc.record(url, "skip", reason)
+        rt_block.record(url, reason)
         skip_reasons[reason] = skip_reasons.get(reason, 0) + 1
         if reason == "blocked_domain":
             host = canon_url(url).split("//")[-1].split("/")
@@ -168,6 +183,7 @@ def main():
         if rotated:
             phase = state.escalate_phase()
             qb.set_phase(phase)
+            cache_wrap = Cache(env, phase=phase, cache_bust=args.cache_bust)
             print(f"[ROTATE] consecutive_skips={state.skip_rotate_threshold} phase={phase}")
             queries = qb.build_queries()
             qi = 0
@@ -186,6 +202,7 @@ def main():
             if qi >= len(queries):
                 phase = state.escalate_phase()
                 qb.set_phase(phase)
+                cache_wrap = Cache(env, phase=phase, cache_bust=args.cache_bust)
                 queries = qb.build_queries()
                 qi = 0
                 if not queries:
@@ -203,6 +220,12 @@ def main():
                         return
                     continue
                 host = canon_url(home).split("//")[-1].split("/")[0]
+                if rt_block.is_blocked(home):
+                    if debug:
+                        print(f"skip[{home}]: runtime_block")
+                    if on_skip(home, "runtime_block"):
+                        return
+                    continue
                 if is_blocked_domain(home, domain_blocklist) or is_blocked_host(cache, host):
                     if debug:
                         print(f"skip[{home}]: blocked_domain")
@@ -211,7 +234,7 @@ def main():
                         save_cache(cache)
                         return
                     continue
-                if has_seen(cache, home) or pc.seen(home):
+                if cache_wrap.seen(home) or has_seen(cache, home) or pc.seen(home):
                     if debug:
                         print(f"skip[{home}]: cache-hit")
                     if on_skip(home, "cache-hit"):
@@ -239,11 +262,17 @@ def main():
                         return
                     continue
                 hits += 1
-                if not _is_html(home):
+                ok_html, status_code = _is_html(home)
+                if not ok_html:
+                    reason = "no_html"
+                    if status_code == 401:
+                        reason = "status_401"
+                    elif status_code == 403:
+                        reason = "status_403"
                     if debug:
-                        print(f"skip[{home}]: no_html")
+                        print(f"skip[{home}]: {reason}")
                     seen_roots.add(home)
-                    if on_skip(home, "no_html"):
+                    if on_skip(home, reason):
                         return
                     continue
                 r = http_get(home)
@@ -253,6 +282,13 @@ def main():
                         print(f"skip[{home}]: no_html")
                     seen_roots.add(home)
                     if on_skip(home, "no_html"):
+                        return
+                    continue
+                if requires_js(html):
+                    if debug:
+                        print(f"skip[{home}]: js_required")
+                    seen_roots.add(home)
+                    if on_skip(home, "js_required"):
                         return
                     continue
                 ig, emails, form = extract_contacts(home, html)

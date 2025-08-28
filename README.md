@@ -40,13 +40,15 @@ intent terms and excludes common noise domains.  Configuration lives in
 | Variable | Description |
 | --- | --- |
 | `EXCLUDE_DOMAINS` | Comma-separated extra domains to block before fetching. |
-| `SKIP_ROTATE_THRESHOLD` | Consecutive skip count before query rotation (default 20). |
+| `EXCLUDE_DOMAINS_EXTRA` | Additional domains appended to the default blocklist. |
+| `CACHE_VERSION` | Cache namespace version prefix (default `v1`). |
+| `SKIP_ROTATE_THRESHOLD` | Consecutive skip count before query rotation (default 8). |
 | `MAX_ROTATIONS_PER_RUN` | Maximum number of query rotations per run (default 4). |
 | `CITY_SEEDS` | Optional comma-separated list of city, state pairs. |
 | `BLOCKLIST_FILE` | Path to domain blocklist file. |
 | `INTENT_FILE` | Path to query intent configuration. |
 | `CLEAR_CACHE` | Clear `.cache` on start when set to `1`. |
-| `FORCE_ENGLISH_QUERIES` | Force query builder to emit ASCII-only queries (default `1`). |
+| `FORCE_ENGLISH_QUERIES` | Force query builder to emit ASCII-only queries (default `0`). |
 | `CACHE_BURST_THRESHOLD` | Cache hit ratio triggering temporary cache bypass (default `0.5`). |
 | `SEARCH_RADIUS_KM` | Base radius in kilometres for nearby city expansion (default `25`). |
 

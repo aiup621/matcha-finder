@@ -15,7 +15,10 @@ class QueryBuilder:
         self.cities: List[str] = self.intent.get("seed_cities", [])
         self.city_idx = 0
         self.ctx_idx = 0
-        self.rotate_threshold = int(os.getenv("SKIP_ROTATE_THRESHOLD", rotate_threshold or 25))
+        if rotate_threshold is not None:
+            self.rotate_threshold = int(rotate_threshold)
+        else:
+            self.rotate_threshold = int(os.getenv("SKIP_ROTATE_THRESHOLD", 25))
         self.consec_skips = 0
 
     def _join_or(self, terms: List[str]) -> str:
