@@ -2,6 +2,7 @@ from __future__ import annotations
 import os
 from typing import Iterable, List, Tuple
 
+# core search phrases (ASCII only)
 BASE_TERMS_CORE: List[str] = [
     "matcha latte",
     "matcha cafe",
@@ -34,7 +35,16 @@ DEFAULT_SEEDS: List[str] = [
 ]
 
 def ascii_only(text: str) -> str:
-    return text.encode("ascii", "ignore").decode()
+    """Return ``text`` if it is pure ASCII, otherwise ``""``.
+
+    Non ASCII terms are dropped entirely instead of being partially
+    converted.  This is important for enforcing the ENGLISH_ONLY policy
+    where foreign terms should not leak into queries.
+    """
+
+    if not text:
+        return ""
+    return text if text.isascii() else ""
 
 class QueryBuilder:
     """Build English-only queries with rotation support.
@@ -64,14 +74,26 @@ class QueryBuilder:
             if s.strip()
         ]
         combined = list(blocklist or []) + env_blocks
-        self.blocklist = [self._to_ascii(s.strip().lower()) for s in combined if s.strip()]
+        blk: List[str] = []
+        for s in combined:
+            s = s.strip().lower()
+            if not s:
+                continue
+            val = self._to_ascii(s)
+            if val:
+                blk.append(val)
+        self.blocklist = blk
         seed_env = os.getenv("CITY_SEEDS")
         if seed_env:
-            seeds = [self._to_ascii(s.strip()) for s in seed_env.split(",") if s.strip()]
+            seeds_raw = [s.strip() for s in seed_env.split(",") if s.strip()]
         else:
-            seeds = list(city_seeds) if city_seeds else DEFAULT_SEEDS
-            seeds = [self._to_ascii(s) for s in seeds]
-        self.cities: List[str] = seeds
+            seeds_raw = list(city_seeds) if city_seeds else DEFAULT_SEEDS
+        seeds: List[str] = []
+        for s in seeds_raw:
+            val = self._to_ascii(s)
+            if val:
+                seeds.append(val)
+        self.cities = seeds
         self.city_idx = 0
         self.base_terms: List[str] = [self._to_ascii(t) for t in BASE_TERMS_CORE]
         self.context_boosters: List[str] = [self._to_ascii(t) for t in CONTEXT_BOOSTERS]

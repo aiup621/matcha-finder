@@ -25,3 +25,27 @@ def test_queries_ascii_and_blocklist():
         ])
         if len(q) < 256:
             assert "-site:" in q
+
+
+def test_query_builder_ascii_only():
+    os.environ["FORCE_ENGLISH_QUERIES"] = "1"
+    qb = QueryBuilder(city_seeds=["東京", "Seattle"])
+    # non ASCII seed should be dropped
+    assert qb.cities == ["Seattle"]
+    for q in qb.build_queries():
+        q.encode("ascii")
+
+
+def test_query_templates_examples():
+    templates = [
+        "independent matcha cafe {city} contact",
+        "matcha latte cafe {city} website",
+        '"tea house" matcha {city} "contact us"',
+        '"Japanese tea" cafe {city} contact',
+        '"ceremonial matcha" cafe {city} contact',
+        '"matcha bar" {city} contact',
+        '"green tea latte" cafe {city} site',
+        '"best matcha" {city} "contact" -amazon -reddit -pinterest',
+    ]
+    for t in templates:
+        t.format(city="Austin").encode("ascii")
