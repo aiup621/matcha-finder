@@ -17,9 +17,8 @@ from verify_matcha import verify_matcha
 from blocklist import load_domain_blocklist, is_blocked_domain
 from crawler_cache import load_cache, save_cache, has_seen, mark_seen, is_blocked_host
 from config_loader import load_settings
-from crawler.query_builder import QueryBuilder, BASE_NEG
+from crawler.query_builder import QueryBuilder, BASE_NEG, is_valid_domain, wrap_query
 from crawler.control import RunState, format_stop
-from crawler.snippet_gate import accepts as snippet_accepts
 from persistent_cache import PersistentCache
 from cache_utils import Cache, EnvConfig
 from runtime_blocklist import RuntimeBlockList, requires_js
@@ -46,8 +45,17 @@ def apex(host_or_url: str) -> str:
     return ".".join(parts[-2:]) if len(parts) >= 2 else netloc
 
 
-BRIDGE_DOMAINS = {d.strip() for d in os.getenv("BRIDGE_DOMAINS", "").split(",") if d.strip()}
-HARD_BLOCKLIST = {d.strip() for d in os.getenv("HARD_BLOCKLIST", "").split(",") if d.strip()}
+def page_has_matcha(html_or_text: str) -> bool:
+    text = html_or_text
+    if "<" in html_or_text:
+        text = html_text(html_or_text)
+    t = text.lower()
+    return "matcha" in t or "抹茶" in t
+
+
+_DEFAULT_BRIDGES = "yelp.com,toasttab.com,opentable.com,doordash.com,ubereats.com,instagram.com"
+BRIDGE_DOMAINS = {d.strip() for d in os.getenv("BRIDGE_DOMAINS", _DEFAULT_BRIDGES).split(",") if d.strip()}
+HARD_BLOCKLIST = {d.strip() for d in os.getenv("HARD_BLOCKLIST", "reddit.com,tiktok.com").split(",") if d.strip()}
 
 
 def is_bridge(url: str) -> bool:
@@ -208,7 +216,7 @@ def main(argv: list[str] | None = None):
     cx = os.getenv("GOOGLE_CX")
     sheet_id = os.getenv("SHEET_ID")
     ws_name = os.getenv("GOOGLE_WORKSHEET_NAME", "抹茶営業リスト（カフェ）")
-    target = int(os.getenv("TARGET_NEW", "100"))
+    target = int(os.getenv("TARGET_NEW", "3"))
     debug = bool(int(os.getenv("DEBUG", "0")))
     require_contact_on_snippet = bool(int(os.getenv("REQUIRE_CONTACT_ON_SNIPPET", "1")))
     if not (api_key and cx and sheet_id):
@@ -246,14 +254,13 @@ def main(argv: list[str] | None = None):
 
     def add_negative_site(url: str):
         d = apex(url)
-        if d and d not in BRIDGE_DOMAINS and d not in HARD_BLOCKLIST:
+        if (
+            d
+            and is_valid_domain(d)
+            and d not in BRIDGE_DOMAINS
+            and d not in HARD_BLOCKLIST
+        ):
             dynamic_negative_sites.add(d)
-
-    def wrap_query(q: str) -> str:
-        parts = list(dynamic_negative_sites)[:8]
-        if parts:
-            return f"{q} " + " ".join(f"-site:{p}" for p in parts)
-        return q
 
     state = RunState(
         target=target,
@@ -261,7 +268,7 @@ def main(argv: list[str] | None = None):
         max_rotations=int(os.getenv("MAX_ROTATIONS_PER_RUN", "8")),
         skip_rotate_threshold=env.SKIP_ROTATE_THRESHOLD,
         cache_burst_threshold=float(os.getenv("CACHE_BURST_THRESHOLD", "0.5")),
-        phase_max=int(os.getenv("PHASE_MAX", "8")),
+        phase_max=int(os.getenv("MAX_ROTATIONS_PER_RUN", "8")),
     )
     cse = CSEClient(api_key, cx, max_daily=int(os.getenv("MAX_DAILY_CSE_QUERIES", "100")))
     queries = qb.build_queries()
@@ -281,7 +288,7 @@ def main(argv: list[str] | None = None):
             host = canon_url(url).split("//")[-1].split("/")
             host = host[0]
             blocked_domains[host] = blocked_domains.get(host, 0) + 1
-        if reason in {"cache-hit", "already-in-sheet", "already-seen root", "dup insta", "blocked_domain", "not US independent cafe"}:
+        if reason in {"cache-hit", "already-in-sheet", "already-seen root", "dup insta", "blocked_domain", "not US independent cafe", "bridge-no-official"}:
             add_negative_site(url)
         if rotated:
             phase = state.escalate_phase()
@@ -312,8 +319,7 @@ def main(argv: list[str] | None = None):
                     stop, reason = state.should_stop(no_candidates=True)
                     break
             q = queries[qi]
-            q = f"{q} {BASE_NEG}".strip()
-            q = wrap_query(q)
+            q = wrap_query(q, list(dynamic_negative_sites)[:8])
             print(f'query(wrapped): "{q}"')
             state.queries += 1
             for it in iter_cse_items(cse, q, num=10, start=1, max_pages=3):
@@ -327,7 +333,6 @@ def main(argv: list[str] | None = None):
                     if on_skip(home, "hard-blocked"):
                         return
                     continue
-                snippet = it.get("snippet") or ""
                 title = it.get("title") or ""
                 if is_bridge(home):
                     bridge_html = http_get(home)
@@ -339,7 +344,7 @@ def main(argv: list[str] | None = None):
                     cands = extract_official_site_from_bridge(bridge_txt, home)
                     official = rank_and_pick(cands, seen_roots, domain_blocklist)
                     if not official:
-                        if on_skip(home, "no official site"):
+                        if on_skip(home, "bridge-no-official"):
                             return
                         continue
                     print(f"bridge-followed[{apex(home)}]: {home} -> {official}")
@@ -352,7 +357,6 @@ def main(argv: list[str] | None = None):
                         if on_skip(home, "hard-blocked"):
                             return
                         continue
-                    snippet = ""
                     title = ""
                 host = canon_url(home).split("//")[-1].split("/")[0]
                 if rt_block.is_blocked(home):
@@ -376,11 +380,6 @@ def main(argv: list[str] | None = None):
                     continue
                 if home in seen_homes:
                     if on_skip(home, "already-in-sheet"):
-                        return
-                    continue
-                if snippet and not snippet_accepts(home, snippet):
-                    seen_roots.add(home)
-                    if on_skip(home, "snippet_not_matcha_context"):
                         return
                     continue
                 hits += 1
@@ -414,8 +413,11 @@ def main(argv: list[str] | None = None):
                 if not emails and extra_contacts.get("emails"):
                     emails = extra_contacts["emails"]
                 menus = list(find_menu_links(html, home, limit=3))
-                how, evidence = verify_matcha(menus, ig, html_text(html))
-                ok = bool(how)
+                text = html_text(html)
+                ok = page_has_matcha(text)
+                if not ok:
+                    how, evidence = verify_matcha(menus, ig, text)
+                    ok = bool(how)
                 if not ok:
                     ok = mini_site_matcha(cse, home)
                 if not ok:

@@ -92,7 +92,7 @@ def format_stop(reason: str, state: RunState) -> str:
     """Create a unified stop log message."""
     return (
         f"[STOP] reason={reason} added={state.added}/{state.target} "
-        f"rotations={state.rotations}/{state.max_rotations} "
+        f"rotations={state.phase}/{state.phase_max} "
         f"queries={state.queries}/{state.max_queries}"
     )
 

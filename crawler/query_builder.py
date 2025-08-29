@@ -1,5 +1,5 @@
 from __future__ import annotations
-import os
+import os, re, random
 from typing import Iterable, List, Tuple
 
 BUSINESS_SITES = "(site:.com OR site:.net OR site:.org OR site:.coffee OR site:.cafe)"
@@ -15,13 +15,12 @@ DEFAULT_SEEDS: List[str] = [
 ]
 
 PHASE_TEMPLATES: List[str] = [
-    "best matcha latte {city} independent cafe official website",
-    "{city} matcha cafe contact page site:.com",
-    "{city} specialty tea bar 'about us' site:.com",
-    "{city} cafe 'get in touch' site:.com",
-    "{nearby_city} matcha cafe official site",
+    "matcha latte {city} independent cafe official website",
+    "{city} matcha cafe official site",
+    "{city} tea house menu matcha site:.com",
+    "artisan matcha {city} cafe website",
     "new matcha cafe opening {city} official site",
-    "artisan tea house {city} website",
+    "best matcha {city} cafe website",
     "third wave cafe {city} website",
 ]
 
@@ -33,11 +32,37 @@ COMMON_BIG_BRANDS = [
     "mercurys.com",
     "sweetparis.com",
     "wushiland-usa.com",
-    "gong-cha",
+    "gongchausa.com",
     "snoozeeatery.com",
+    "betterbuzzcoffee.com",
 ]
 
-BASE_NEG = " ".join(f"-site:{d}" for d in COMMON_BIG_BRANDS)
+DOMAIN_RE = re.compile(r"^(?:[a-z0-9-]+\.)+[a-z]{2,}$")
+
+def is_valid_domain(d: str) -> bool:
+    return bool(DOMAIN_RE.match(d.strip().lower()))
+
+
+def normalize_negatives(extra_csv: str) -> str:
+    domains = set(COMMON_BIG_BRANDS)
+    for d in (extra_csv or "").split(","):
+        d = d.strip().lower()
+        if is_valid_domain(d):
+            domains.add(d)
+    return " ".join(f"-site:{d}" for d in sorted(domains))
+
+
+BASE_NEG = normalize_negatives(os.getenv("EXCLUDE_DOMAINS", ""))
+
+
+def wrap_query(q: str, extra_neg: Iterable[str] = ()) -> str:
+    extra = " ".join(f"-site:{d}" for d in extra_neg if is_valid_domain(d))
+    out = " ".join(p for p in [q.strip(), BASE_NEG, extra] if p).strip()
+    cleaned = out.replace(BUSINESS_SITES, "")
+    for token in cleaned.split():
+        if token.startswith("site:") and not token.startswith("-site:"):
+            raise ValueError(f"positive site token: {token}")
+    return out
 
 def ascii_only(text: str) -> str:
     """Return ``text`` if it is pure ASCII, otherwise ``""``.
@@ -69,7 +94,7 @@ class QueryBuilder:
         max_rotations: int | None = None,
         enforce_english: bool | None = None,
     ) -> None:
-        env_force = bool(int(os.getenv("FORCE_ENGLISH_QUERIES", "0")))
+        env_force = bool(int(os.getenv("ENGLISH_ONLY", "1")))
         self.enforce_english = env_force if enforce_english is None else enforce_english
         block_env = os.getenv("EXCLUDE_DOMAINS", "")
         block_extra = os.getenv("EXCLUDE_DOMAINS_EXTRA", "")
@@ -85,7 +110,7 @@ class QueryBuilder:
             if not s:
                 continue
             val = self._to_ascii(s)
-            if val:
+            if val and is_valid_domain(val):
                 blk.append(val)
         self.blocklist = blk
         seed_env = os.getenv("CITY_SEEDS")
@@ -98,12 +123,13 @@ class QueryBuilder:
             val = self._to_ascii(s)
             if val:
                 seeds.append(val)
+        random.shuffle(seeds)
         self.cities = seeds
         self.city_idx = 0
         self.rotate_threshold = int(
             os.getenv("SKIP_ROTATE_THRESHOLD", rotate_threshold or 8)
         )
-        self.max_rotations = int(os.getenv("MAX_ROTATIONS_PER_RUN", max_rotations or 4))
+        self.max_rotations = int(os.getenv("MAX_ROTATIONS_PER_RUN", max_rotations or 8))
         self.consec_skips = 0
         self.rotations = 0
         self.rotation_log: List[Tuple[str, str, str]] = []
@@ -175,4 +201,11 @@ class QueryBuilder:
     def rotation_summary(self) -> List[Tuple[str, str, str]]:
         return self.rotation_log
 
-__all__ = ["QueryBuilder", "ascii_only", "BASE_NEG"]
+__all__ = [
+    "QueryBuilder",
+    "ascii_only",
+    "BASE_NEG",
+    "is_valid_domain",
+    "normalize_negatives",
+    "wrap_query",
+]
