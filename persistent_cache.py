@@ -1,10 +1,16 @@
 import os
 import sqlite3
 import time
+from datetime import date
 from typing import Optional
 
 class PersistentCache:
-    def __init__(self, path: str = ".cache/crawler.sqlite"):
+    TTL_NEG = int(os.getenv("PERSISTENT_CACHE_TTL_NEG", "7")) * 86400
+
+    def __init__(self, path: str | None = None):
+        if path is None:
+            today = date.today().strftime("%Y%m%d")
+            path = f".cache/crawler-{today}.sqlite"
         os.makedirs(os.path.dirname(path), exist_ok=True)
         self.conn = sqlite3.connect(path)
         with self.conn:
@@ -25,9 +31,14 @@ class PersistentCache:
             )
 
     def seen(self, url: str) -> Optional[str]:
-        cur = self.conn.execute("SELECT status FROM visits WHERE url=?", (url,))
+        cur = self.conn.execute("SELECT status, ts FROM visits WHERE url=?", (url,))
         row = cur.fetchone()
-        return row[0] if row else None
+        if not row:
+            return None
+        status, ts = row
+        if status != "add" and time.time() - ts > self.TTL_NEG:
+            return None
+        return status
 
     def record(self, url: str, status: str, reason: str = "") -> None:
         with self.conn:
