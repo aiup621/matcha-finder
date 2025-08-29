@@ -10,6 +10,7 @@ from light_extract import (
     normalize_candidate_url, find_menu_links,
     extract_contacts, is_us_cafe_site, guess_brand, MATCHA_WORDS
 )
+from contact_extractors import extract_contact_endpoints
 from verify_matcha import verify_matcha
 from blocklist import load_domain_blocklist, is_blocked_domain
 from crawler_cache import load_cache, save_cache, has_seen, mark_seen, is_blocked_host
@@ -292,6 +293,11 @@ def main(argv: list[str] | None = None):
                         return
                     continue
                 ig, emails, form = extract_contacts(home, html)
+                extra_contacts = extract_contact_endpoints(html, home)
+                if not form and extra_contacts.get("form_urls"):
+                    form = extra_contacts["form_urls"][0]
+                if not emails and extra_contacts.get("emails"):
+                    emails = extra_contacts["emails"]
                 menus = list(find_menu_links(html, home, limit=3))
                 how, evidence = verify_matcha(menus, ig, html_text(html))
                 ok = bool(how)
