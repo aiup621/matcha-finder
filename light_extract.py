@@ -12,6 +12,7 @@ USER_AGENTS = [
     "Mozilla/5.0 (X11; Linux x86_64; rv:115.0) Gecko/20100101 Firefox/115.0",
 ]
 TIMEOUT = float(os.getenv("HTTP_TIMEOUT", "10"))
+SMALL_CHAIN_MAX = int(os.getenv("SMALL_CHAIN_MAX_LOCATIONS", "10"))
 
 BLOCK_DOMAINS = {
     # メディア/まとめ/配達/予約/大手SNS
@@ -285,10 +286,10 @@ def is_chain_like(base: str, html: str) -> bool:
     if rr and rr.text:
         soup = BeautifulSoup(rr.text, "lxml")
         cards = soup.select('[class*="location"], [class*="store"], .card, li')
-        if len(cards) >= 6:
+        if len(cards) > SMALL_CHAIN_MAX:
             return True
     addr_hits = len(re.findall(r"\d{1,5}\s+\w+\s+\w+|[A-Za-z]+,\s*[A-Z]{2}\s*\d{5}", html))
-    return addr_hits >= 8
+    return addr_hits > SMALL_CHAIN_MAX
 
 US_STATES = {
     "AL","AK","AZ","AR","CA","CO","CT","DE","FL","GA","HI","ID","IL","IN","IA",

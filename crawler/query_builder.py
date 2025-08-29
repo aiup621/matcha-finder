@@ -2,26 +2,6 @@ from __future__ import annotations
 import os
 from typing import Iterable, List, Tuple
 
-# core search phrases (ASCII only)
-BASE_TERMS_CORE: List[str] = [
-    "matcha latte",
-    "matcha cafe",
-    "matcha menu",
-]
-BASE_TERMS_SYNONYMS: List[str] = [
-    "green tea latte",
-    "ceremonial matcha",
-    "matcha soft serve",
-    "house-made matcha",
-]
-CONTEXT_BOOSTERS: List[str] = [
-    "menu",
-    "hours",
-    "about",
-    "contact",
-    "drink",
-    "beverage",
-]
 BUSINESS_SITES = "(site:.com OR site:.net OR site:.org OR site:.coffee OR site:.cafe)"
 DEFAULT_SEEDS: List[str] = [
     "San Antonio, TX",
@@ -33,6 +13,31 @@ DEFAULT_SEEDS: List[str] = [
     "Portland, OR",
     "Tampa, FL",
 ]
+
+PHASE_TEMPLATES: List[str] = [
+    "best matcha latte {city} independent cafe official website",
+    "{city} matcha cafe contact page site:.com",
+    "{city} specialty tea bar 'about us' site:.com",
+    "{city} cafe 'get in touch' site:.com",
+    "{nearby_city} matcha cafe official site",
+    "new matcha cafe opening {city} official site",
+    "artisan tea house {city} website",
+    "third wave cafe {city} website",
+]
+
+COMMON_BIG_BRANDS = [
+    "starbucks.com",
+    "joejuice.com",
+    "parisbaguette.com",
+    "7brew.com",
+    "mercurys.com",
+    "sweetparis.com",
+    "wushiland-usa.com",
+    "gong-cha",
+    "snoozeeatery.com",
+]
+
+BASE_NEG = " ".join(f"-site:{d}" for d in COMMON_BIG_BRANDS)
 
 def ascii_only(text: str) -> str:
     """Return ``text`` if it is pure ASCII, otherwise ``""``.
@@ -95,8 +100,6 @@ class QueryBuilder:
                 seeds.append(val)
         self.cities = seeds
         self.city_idx = 0
-        self.base_terms: List[str] = [self._to_ascii(t) for t in BASE_TERMS_CORE]
-        self.context_boosters: List[str] = [self._to_ascii(t) for t in CONTEXT_BOOSTERS]
         self.rotate_threshold = int(
             os.getenv("SKIP_ROTATE_THRESHOLD", rotate_threshold or 8)
         )
@@ -104,8 +107,7 @@ class QueryBuilder:
         self.consec_skips = 0
         self.rotations = 0
         self.rotation_log: List[Tuple[str, str, str]] = []
-        self.include_synonyms = False
-        self.force_tight_context = False
+        self.phase = 1
 
     # -------- query construction ---------
     def _neg_sites(self, current: str) -> str:
@@ -126,47 +128,21 @@ class QueryBuilder:
         return ascii_only(text) if self.enforce_english else text
 
     def set_phase(self, phase: int) -> None:
-        """Adjust internal flags according to escalation phase."""
-        self.base_terms = [self._to_ascii(t) for t in BASE_TERMS_CORE]
-        if phase >= 2:
-            self.base_terms.extend(self._to_ascii(t) for t in BASE_TERMS_SYNONYMS)
-        self.include_synonyms = phase >= 2
-        self.force_tight_context = phase >= 3
+        self.phase = phase
 
     def build_queries(self) -> List[str]:
-        city = self._to_ascii(self.current_city())
-        patterns = [
-            lambda b: f'"{b}" AND (menu OR hours OR contact)',
-            lambda b: f'"{b}" AND menu',
-            lambda b: f'"{b}" AND (drink OR beverage)',
-        ]
-        if self.force_tight_context:
-            patterns = [
-                lambda b: f'"{b}" AND (menu OR hours OR contact)',
-                lambda b: f'"{b}" AND menu',
-            ]
+        idx = min(max(self.phase, 1), len(PHASE_TEMPLATES)) - 1
+        tmpl = PHASE_TEMPLATES[idx]
+        cities = self.cities[self.city_idx :] + self.cities[: self.city_idx]
         queries: List[str] = []
-        for b in self.base_terms:
-            for pat in patterns:
-                if len(queries) >= 12:
-                    break
-                core = f"{pat(b)} AND {city}"
-                neg = self._neg_sites(core)
-                q = core if not neg else f"{core} {neg}"
-                q = self._apply_business_sites(q)
-                q = self._to_ascii(q)[:256]
-                assert len(q) <= 256
-                queries.append(q)
-            if len(queries) >= 12:
-                break
-        # ensure uniqueness
-        uniq: List[str] = []
-        seen = set()
-        for q in queries:
-            if q not in seen:
-                seen.add(q)
-                uniq.append(q)
-        return uniq
+        for city in cities:
+            core = tmpl.format(city=city, nearby_city=city).strip()
+            neg = self._neg_sites(core)
+            q = core if not neg else f"{core} {neg}"
+            q = self._apply_business_sites(q)
+            q = self._to_ascii(q)[:256]
+            queries.append(q)
+        return queries
 
     # -------- rotation handling --------
     def current_city(self) -> str:
@@ -199,4 +175,4 @@ class QueryBuilder:
     def rotation_summary(self) -> List[Tuple[str, str, str]]:
         return self.rotation_log
 
-__all__ = ["QueryBuilder", "ascii_only"]
+__all__ = ["QueryBuilder", "ascii_only", "BASE_NEG"]
