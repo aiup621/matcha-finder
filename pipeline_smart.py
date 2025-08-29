@@ -2,6 +2,8 @@ import os, json, traceback
 import re
 import requests
 import argparse
+from urllib.parse import urlparse, urljoin
+from bs4 import BeautifulSoup
 from dotenv import load_dotenv
 from cse_client import CSEClient, DailyQuotaExceeded
 from sheet_io_v2 import append_row_in_order, load_existing_keys
@@ -15,16 +17,98 @@ from verify_matcha import verify_matcha
 from blocklist import load_domain_blocklist, is_blocked_domain
 from crawler_cache import load_cache, save_cache, has_seen, mark_seen, is_blocked_host
 from config_loader import load_settings
-from crawler.query_builder import QueryBuilder
+from crawler.query_builder import QueryBuilder, BASE_NEG
 from crawler.control import RunState, format_stop
 from crawler.snippet_gate import accepts as snippet_accepts
 from persistent_cache import PersistentCache
 from cache_utils import Cache, EnvConfig
 from runtime_blocklist import RuntimeBlockList, requires_js
 
+"""Smart pipeline with bridge-domain hopping and dynamic negatives.
+
+Env additions:
+  - BRIDGE_DOMAINS / HARD_BLOCKLIST for special domain handling
+  - PHASE_MAX controls query phase escalation
+  - SKIP_ROTATE_THRESHOLD / MAX_ROTATIONS_PER_RUN tuning
+  - ENGLISH_ONLY / REGION_HINT / SMALL_CHAIN_MAX_LOCATIONS
+  - CONTACT_FORM_ALLOW_THIRDPARTY to allow third-party form discovery
+"""
+
 load_dotenv()
 
 SEEN_PATH = ".seen_roots.json"
+
+
+def apex(host_or_url: str) -> str:
+    netloc = urlparse(host_or_url).netloc or host_or_url
+    netloc = netloc.split(":")[0]
+    parts = netloc.split(".")
+    return ".".join(parts[-2:]) if len(parts) >= 2 else netloc
+
+
+BRIDGE_DOMAINS = {d.strip() for d in os.getenv("BRIDGE_DOMAINS", "").split(",") if d.strip()}
+HARD_BLOCKLIST = {d.strip() for d in os.getenv("HARD_BLOCKLIST", "").split(",") if d.strip()}
+
+
+def is_bridge(url: str) -> bool:
+    return apex(url) in BRIDGE_DOMAINS
+
+
+def is_hard_blocked(url: str) -> bool:
+    return apex(url) in HARD_BLOCKLIST
+
+
+ANCHOR_KEYS = [
+    "website",
+    "visit website",
+    "official site",
+    "order online",
+    "order direct",
+    "menu",
+    "reservations",
+]
+
+
+def extract_official_site_from_bridge(html: str, base_url: str) -> list[str]:
+    soup = BeautifulSoup(html, "lxml")
+    cands: list[str] = []
+    for a in soup.find_all("a", href=True):
+        txt = a.get_text(" ", strip=True).lower()
+        if any(k in txt for k in ANCHOR_KEYS):
+            cands.append(urljoin(base_url, a["href"]))
+    for tag in soup.find_all("meta", property="og:url"):
+        url = tag.get("content")
+        if url:
+            cands.append(url)
+    for tag in soup.find_all("link", rel=lambda x: x and "canonical" in x.lower()):
+        href = tag.get("href")
+        if href:
+            cands.append(urljoin(base_url, href))
+    if apex(base_url) == "instagram.com":
+        m = re.search(r'"external_url"\s*:\s*"(https?://[^"]+)"', html)
+        if m:
+            cands.append(m.group(1))
+    return cands
+
+
+def rank_and_pick(candidates: list[str], seen_roots: set[str], blocklist: list[str]) -> str | None:
+    best = None
+    best_score = -999
+    for u in candidates:
+        d = apex(u)
+        if d in BRIDGE_DOMAINS or d in HARD_BLOCKLIST:
+            continue
+        if is_blocked_domain(u, blocklist):
+            continue
+        score = 0
+        if re.search(r"\.(com|net|org)(/|$)", u):
+            score += 2
+        if d not in seen_roots:
+            score += 1
+        if score > best_score:
+            best_score = score
+            best = u
+    return best
 
 
 def load_json(path, default):
@@ -157,12 +241,27 @@ def main(argv: list[str] | None = None):
     blocked_domains: dict[str, int] = {}
     max_queries = int(os.getenv("MAX_QUERIES_PER_RUN", "120"))
     search_radius = float(os.getenv("SEARCH_RADIUS_KM", "25"))
+
+    dynamic_negative_sites: set[str] = set()
+
+    def add_negative_site(url: str):
+        d = apex(url)
+        if d and d not in BRIDGE_DOMAINS and d not in HARD_BLOCKLIST:
+            dynamic_negative_sites.add(d)
+
+    def wrap_query(q: str) -> str:
+        parts = list(dynamic_negative_sites)[:8]
+        if parts:
+            return f"{q} " + " ".join(f"-site:{p}" for p in parts)
+        return q
+
     state = RunState(
         target=target,
         max_queries=max_queries,
-        max_rotations=int(os.getenv("MAX_ROTATIONS_PER_RUN", "4")),
+        max_rotations=int(os.getenv("MAX_ROTATIONS_PER_RUN", "8")),
         skip_rotate_threshold=env.SKIP_ROTATE_THRESHOLD,
         cache_burst_threshold=float(os.getenv("CACHE_BURST_THRESHOLD", "0.5")),
+        phase_max=int(os.getenv("PHASE_MAX", "8")),
     )
     cse = CSEClient(api_key, cx, max_daily=int(os.getenv("MAX_DAILY_CSE_QUERIES", "100")))
     queries = qb.build_queries()
@@ -170,6 +269,7 @@ def main(argv: list[str] | None = None):
 
     def on_skip(url: str, reason: str):
         nonlocal queries, qi, cache_wrap
+        print(f"skip[{url}]: {reason}")
         state.record_skip(reason)
         rotated = qb.record_skip()
         if state.should_rotate():
@@ -181,6 +281,8 @@ def main(argv: list[str] | None = None):
             host = canon_url(url).split("//")[-1].split("/")
             host = host[0]
             blocked_domains[host] = blocked_domains.get(host, 0) + 1
+        if reason in {"cache-hit", "already-in-sheet", "already-seen root", "dup insta", "blocked_domain", "not US independent cafe"}:
+            add_negative_site(url)
         if rotated:
             phase = state.escalate_phase()
             qb.set_phase(phase)
@@ -210,54 +312,73 @@ def main(argv: list[str] | None = None):
                     stop, reason = state.should_stop(no_candidates=True)
                     break
             q = queries[qi]
+            q = f"{q} {BASE_NEG}".strip()
+            q = wrap_query(q)
+            print(f'query(wrapped): "{q}"')
             state.queries += 1
             for it in iter_cse_items(cse, q, num=10, start=1, max_pages=3):
                 raw = (it.get("link") or "").strip()
                 home = normalize_candidate_url(raw)
                 if not home:
-                    if debug:
-                        print(f"skip[{raw}]: blocked or empty")
                     if on_skip(raw, "blocked or empty"):
                         return
                     continue
+                if is_hard_blocked(home):
+                    if on_skip(home, "hard-blocked"):
+                        return
+                    continue
+                snippet = it.get("snippet") or ""
+                title = it.get("title") or ""
+                if is_bridge(home):
+                    bridge_html = http_get(home)
+                    bridge_txt = bridge_html.text if (bridge_html and bridge_html.text) else ""
+                    if not bridge_txt:
+                        if on_skip(home, "no_html"):
+                            return
+                        continue
+                    cands = extract_official_site_from_bridge(bridge_txt, home)
+                    official = rank_and_pick(cands, seen_roots, domain_blocklist)
+                    if not official:
+                        if on_skip(home, "no official site"):
+                            return
+                        continue
+                    print(f"bridge-followed[{apex(home)}]: {home} -> {official}")
+                    home = normalize_candidate_url(official)
+                    if not home:
+                        if on_skip(official, "blocked or empty"):
+                            return
+                        continue
+                    if is_hard_blocked(home):
+                        if on_skip(home, "hard-blocked"):
+                            return
+                        continue
+                    snippet = ""
+                    title = ""
                 host = canon_url(home).split("//")[-1].split("/")[0]
                 if rt_block.is_blocked(home):
-                    if debug:
-                        print(f"skip[{home}]: runtime_block")
                     if on_skip(home, "runtime_block"):
                         return
                     continue
                 if is_blocked_domain(home, domain_blocklist) or is_blocked_host(cache, host):
-                    if debug:
-                        print(f"skip[{home}]: blocked_domain")
                     mark_seen(cache, home)
                     if on_skip(home, "blocked_domain"):
                         save_cache(cache)
                         return
                     continue
                 if cache_wrap.seen(home) or has_seen(cache, home) or pc.seen(home):
-                    if debug:
-                        print(f"skip[{home}]: cache-hit")
                     if on_skip(home, "cache-hit"):
                         return
                     continue
                 mark_seen(cache, home)
                 if home in seen_roots:
-                    if debug:
-                        print(f"skip[{home}]: already-seen root")
                     if on_skip(home, "already-seen root"):
                         return
                     continue
                 if home in seen_homes:
-                    if debug:
-                        print(f"skip[{home}]: already-in-sheet")
                     if on_skip(home, "already-in-sheet"):
                         return
                     continue
-                snippet = it.get("snippet") or ""
-                if not snippet_accepts(home, snippet):
-                    if debug:
-                        print(f"skip[{home}]: snippet_not_matcha_context")
+                if snippet and not snippet_accepts(home, snippet):
                     seen_roots.add(home)
                     if on_skip(home, "snippet_not_matcha_context"):
                         return
@@ -270,8 +391,6 @@ def main(argv: list[str] | None = None):
                         reason = "status_401"
                     elif status_code == 403:
                         reason = "status_403"
-                    if debug:
-                        print(f"skip[{home}]: {reason}")
                     seen_roots.add(home)
                     if on_skip(home, reason):
                         return
@@ -279,15 +398,11 @@ def main(argv: list[str] | None = None):
                 r = http_get(home)
                 html = r.text if (r and r.text) else ""
                 if not html:
-                    if debug:
-                        print(f"skip[{home}]: no_html")
                     seen_roots.add(home)
                     if on_skip(home, "no_html"):
                         return
                     continue
                 if requires_js(html):
-                    if debug:
-                        print(f"skip[{home}]: js_required")
                     seen_roots.add(home)
                     if on_skip(home, "js_required"):
                         return
@@ -304,35 +419,27 @@ def main(argv: list[str] | None = None):
                 if not ok:
                     ok = mini_site_matcha(cse, home)
                 if not ok:
-                    if debug:
-                        print(f"skip[{home}]: no matcha evidence")
                     seen_roots.add(home)
                     if on_skip(home, "no matcha evidence"):
                         return
                     continue
                 if not is_us_cafe_site(home, html):
-                    if debug:
-                        print(f"skip[{home}]: not US independent cafe")
                     seen_roots.add(home)
                     if on_skip(home, "not US independent cafe"):
                         return
                     continue
                 if require_contact_on_snippet and not (ig or emails or form):
-                    if debug:
-                        print(f"skip[{home}]: no contacts found")
                     seen_roots.add(home)
                     if on_skip(home, "no contacts found"):
                         return
                     continue
                 ig_key = canon_url(ig) if ig else ""
                 if ig_key and ig_key in seen_instas:
-                    if debug:
-                        print(f"skip[{home}]: dup insta")
                     seen_roots.add(home)
                     if on_skip(home, "dup insta"):
                         return
                     continue
-                brand = guess_brand(home, html, it.get("title") or "")
+                brand = guess_brand(home, html, title)
                 row = {
                     "店名": brand,
                     "国": "US",

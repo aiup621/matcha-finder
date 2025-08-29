@@ -23,6 +23,7 @@ class RunState:
     rotations: int = 0
     consecutive_skips: int = 0
     phase: int = 1
+    phase_max: int = 6
     _last_added: int = 0
     recent_cache: Deque[int] = field(default_factory=lambda: deque(maxlen=20))
     cache_burst: bool = False
@@ -66,7 +67,7 @@ class RunState:
             self._last_added = self.added
             self.phase = 1
         else:
-            self.phase = min(self.phase + 1, 6)
+            self.phase = min(self.phase + 1, self.phase_max)
         return self.phase
 
     def should_stop(
