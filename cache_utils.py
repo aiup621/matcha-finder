@@ -1,13 +1,15 @@
 from __future__ import annotations
 import os, uuid, hashlib
 from dataclasses import dataclass
+from datetime import date
 
 @dataclass
 class EnvConfig:
     CACHE_VERSION: str = os.getenv("CACHE_VERSION", "v1")
     EXCLUDE_DOMAINS_EXTRA: str = os.getenv("EXCLUDE_DOMAINS_EXTRA", "")
     FORCE_ENGLISH_QUERIES: int = int(os.getenv("FORCE_ENGLISH_QUERIES", "0"))
-    SKIP_ROTATE_THRESHOLD: int = int(os.getenv("SKIP_ROTATE_THRESHOLD", "8"))
+    SKIP_ROTATE_THRESHOLD: int = max(8, int(os.getenv("SKIP_ROTATE_THRESHOLD", "8")))
+    CACHE_DATE: str = date.today().strftime("%Y%m%d")
 
 class Cache:
     """Lightweight cache namespace helper."""
@@ -18,7 +20,7 @@ class Cache:
         self.visited_urls: set[str] = set()
 
     def namespace(self) -> str:
-        ns = self.env.CACHE_VERSION
+        ns = f"{self.env.CACHE_DATE}-{self.env.CACHE_VERSION}"
         if self.phase >= 3:
             ns = f"{ns}:p{self.phase}"
         if self._suffix:

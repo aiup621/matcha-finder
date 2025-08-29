@@ -2,6 +2,8 @@ from __future__ import annotations
 import os, re, random
 from typing import Iterable, List, Tuple
 
+from finder.querygen import BASE_TEMPLATES, _sanitize_query
+
 BUSINESS_SITES = "(site:.com OR site:.net OR site:.org OR site:.coffee OR site:.cafe)"
 DEFAULT_SEEDS: List[str] = [
     "San Antonio, TX",
@@ -14,15 +16,7 @@ DEFAULT_SEEDS: List[str] = [
     "Tampa, FL",
 ]
 
-PHASE_TEMPLATES: List[str] = [
-    "matcha latte {city} independent cafe official website",
-    "{city} matcha cafe official site",
-    "{city} tea house menu matcha site:.com",
-    "artisan matcha {city} cafe website",
-    "new matcha cafe opening {city} official site",
-    "best matcha {city} cafe website",
-    "third wave cafe {city} website",
-]
+PHASE_TEMPLATES: List[str] = list(BASE_TEMPLATES)
 
 COMMON_BIG_BRANDS = [
     "starbucks.com",
@@ -126,10 +120,12 @@ class QueryBuilder:
         random.shuffle(seeds)
         self.cities = seeds
         self.city_idx = 0
-        self.rotate_threshold = int(
-            os.getenv("SKIP_ROTATE_THRESHOLD", rotate_threshold or 8)
+        self.rotate_threshold = max(
+            8, int(os.getenv("SKIP_ROTATE_THRESHOLD", rotate_threshold or 8))
         )
-        self.max_rotations = int(os.getenv("MAX_ROTATIONS_PER_RUN", max_rotations or 8))
+        self.max_rotations = max(
+            8, int(os.getenv("MAX_ROTATIONS_PER_RUN", max_rotations or 8))
+        )
         self.consec_skips = 0
         self.rotations = 0
         self.rotation_log: List[Tuple[str, str, str]] = []
@@ -146,8 +142,6 @@ class QueryBuilder:
         return " ".join(parts)
 
     def _apply_business_sites(self, q: str) -> str:
-        if len(f"{q} {BUSINESS_SITES}") <= 256:
-            return f"{q} {BUSINESS_SITES}"
         return q
 
     def _to_ascii(self, text: str) -> str:
@@ -165,6 +159,7 @@ class QueryBuilder:
             core = tmpl.format(city=city, nearby_city=city).strip()
             neg = self._neg_sites(core)
             q = core if not neg else f"{core} {neg}"
+            q = _sanitize_query(q)
             q = self._apply_business_sites(q)
             q = self._to_ascii(q)[:256]
             queries.append(q)

@@ -3,7 +3,6 @@ import re
 import requests
 import argparse
 from urllib.parse import urlparse, urljoin
-from bs4 import BeautifulSoup
 from dotenv import load_dotenv
 from cse_client import CSEClient, DailyQuotaExceeded
 from sheet_io_v2 import append_row_in_order, load_existing_keys
@@ -17,16 +16,17 @@ from verify_matcha import verify_matcha
 from blocklist import load_domain_blocklist, is_blocked_domain
 from crawler_cache import load_cache, save_cache, has_seen, mark_seen, is_blocked_host
 from config_loader import load_settings
-from crawler.query_builder import QueryBuilder, BASE_NEG, is_valid_domain, wrap_query
+from crawler.query_builder import QueryBuilder, BASE_NEG, wrap_query
 from crawler.control import RunState, format_stop
 from persistent_cache import PersistentCache
 from cache_utils import Cache, EnvConfig
 from runtime_blocklist import RuntimeBlockList, requires_js
+from finder.bridge import can_bridge, extract_official
 
 """Smart pipeline with bridge-domain hopping and dynamic negatives.
 
 Env additions:
-  - BRIDGE_DOMAINS / HARD_BLOCKLIST for special domain handling
+  - HARD_BLOCKLIST for special domain handling
   - PHASE_MAX controls query phase escalation
   - SKIP_ROTATE_THRESHOLD / MAX_ROTATIONS_PER_RUN tuning
   - ENGLISH_ONLY / REGION_HINT / SMALL_CHAIN_MAX_LOCATIONS
@@ -36,6 +36,8 @@ Env additions:
 load_dotenv()
 
 SEEN_PATH = ".seen_roots.json"
+BRIDGE_TRIED = 0
+BRIDGE_SUCCESS = 0
 
 
 def apex(host_or_url: str) -> str:
@@ -53,70 +55,11 @@ def page_has_matcha(html_or_text: str) -> bool:
     return "matcha" in t or "抹茶" in t
 
 
-_DEFAULT_BRIDGES = "yelp.com,toasttab.com,opentable.com,doordash.com,ubereats.com,instagram.com"
-BRIDGE_DOMAINS = {d.strip() for d in os.getenv("BRIDGE_DOMAINS", _DEFAULT_BRIDGES).split(",") if d.strip()}
 HARD_BLOCKLIST = {d.strip() for d in os.getenv("HARD_BLOCKLIST", "reddit.com,tiktok.com").split(",") if d.strip()}
-
-
-def is_bridge(url: str) -> bool:
-    return apex(url) in BRIDGE_DOMAINS
 
 
 def is_hard_blocked(url: str) -> bool:
     return apex(url) in HARD_BLOCKLIST
-
-
-ANCHOR_KEYS = [
-    "website",
-    "visit website",
-    "official site",
-    "order online",
-    "order direct",
-    "menu",
-    "reservations",
-]
-
-
-def extract_official_site_from_bridge(html: str, base_url: str) -> list[str]:
-    soup = BeautifulSoup(html, "lxml")
-    cands: list[str] = []
-    for a in soup.find_all("a", href=True):
-        txt = a.get_text(" ", strip=True).lower()
-        if any(k in txt for k in ANCHOR_KEYS):
-            cands.append(urljoin(base_url, a["href"]))
-    for tag in soup.find_all("meta", property="og:url"):
-        url = tag.get("content")
-        if url:
-            cands.append(url)
-    for tag in soup.find_all("link", rel=lambda x: x and "canonical" in x.lower()):
-        href = tag.get("href")
-        if href:
-            cands.append(urljoin(base_url, href))
-    if apex(base_url) == "instagram.com":
-        m = re.search(r'"external_url"\s*:\s*"(https?://[^"]+)"', html)
-        if m:
-            cands.append(m.group(1))
-    return cands
-
-
-def rank_and_pick(candidates: list[str], seen_roots: set[str], blocklist: list[str]) -> str | None:
-    best = None
-    best_score = -999
-    for u in candidates:
-        d = apex(u)
-        if d in BRIDGE_DOMAINS or d in HARD_BLOCKLIST:
-            continue
-        if is_blocked_domain(u, blocklist):
-            continue
-        score = 0
-        if re.search(r"\.(com|net|org)(/|$)", u):
-            score += 2
-        if d not in seen_roots:
-            score += 1
-        if score > best_score:
-            best_score = score
-            best = u
-    return best
 
 
 def load_json(path, default):
@@ -208,6 +151,7 @@ def iter_cse_items(cse: CSEClient, query: str, num=10, start=1, max_pages=1):
 
 
 def main(argv: list[str] | None = None):
+    global BRIDGE_TRIED, BRIDGE_SUCCESS
     parser = argparse.ArgumentParser()
     parser.add_argument("--cache-bust", action="store_true")
     args = parser.parse_args(argv)
@@ -239,7 +183,7 @@ def main(argv: list[str] | None = None):
     extra = [d.strip() for d in f"{extra_env},{extra_env2}".split(",") if d.strip()]
     domain_blocklist = sorted(set(domain_blocklist + extra))
     cache = load_cache()
-    qb = QueryBuilder(blocklist=domain_blocklist)
+    qb = QueryBuilder(blocklist=[])
     qb.set_phase(1)
     pc = PersistentCache()
     cache_wrap = Cache(env, phase=1, cache_bust=args.cache_bust)
@@ -249,18 +193,6 @@ def main(argv: list[str] | None = None):
     blocked_domains: dict[str, int] = {}
     max_queries = int(os.getenv("MAX_QUERIES_PER_RUN", "120"))
     search_radius = float(os.getenv("SEARCH_RADIUS_KM", "25"))
-
-    dynamic_negative_sites: set[str] = set()
-
-    def add_negative_site(url: str):
-        d = apex(url)
-        if (
-            d
-            and is_valid_domain(d)
-            and d not in BRIDGE_DOMAINS
-            and d not in HARD_BLOCKLIST
-        ):
-            dynamic_negative_sites.add(d)
 
     state = RunState(
         target=target,
@@ -288,8 +220,6 @@ def main(argv: list[str] | None = None):
             host = canon_url(url).split("//")[-1].split("/")
             host = host[0]
             blocked_domains[host] = blocked_domains.get(host, 0) + 1
-        if reason in {"cache-hit", "already-in-sheet", "already-seen root", "dup insta", "blocked_domain", "not US independent cafe", "bridge-no-official"}:
-            add_negative_site(url)
         if rotated:
             phase = state.escalate_phase()
             qb.set_phase(phase)
@@ -319,7 +249,7 @@ def main(argv: list[str] | None = None):
                     stop, reason = state.should_stop(no_candidates=True)
                     break
             q = queries[qi]
-            q = wrap_query(q, list(dynamic_negative_sites)[:8])
+            q = wrap_query(q)
             print(f'query(wrapped): "{q}"')
             state.queries += 1
             for it in iter_cse_items(cse, q, num=10, start=1, max_pages=3):
@@ -329,35 +259,25 @@ def main(argv: list[str] | None = None):
                     if on_skip(raw, "blocked or empty"):
                         return
                     continue
+                if can_bridge(home):
+                    BRIDGE_TRIED += 1
+                    try:
+                        bridge_html = http_get(home)
+                        bridge_txt = bridge_html.text if (bridge_html and bridge_html.text) else ""
+                    except Exception:
+                        bridge_txt = ""
+                    official = extract_official(home, bridge_txt) if bridge_txt else None
+                    if official:
+                        BRIDGE_SUCCESS += 1
+                        print(f"bridge-followed[{apex(home)}]: {home} -> {official}")
+                        home = normalize_candidate_url(official) or home
+                    else:
+                        print(f"bridge-no-official[{home}]")
                 if is_hard_blocked(home):
                     if on_skip(home, "hard-blocked"):
                         return
                     continue
                 title = it.get("title") or ""
-                if is_bridge(home):
-                    bridge_html = http_get(home)
-                    bridge_txt = bridge_html.text if (bridge_html and bridge_html.text) else ""
-                    if not bridge_txt:
-                        if on_skip(home, "no_html"):
-                            return
-                        continue
-                    cands = extract_official_site_from_bridge(bridge_txt, home)
-                    official = rank_and_pick(cands, seen_roots, domain_blocklist)
-                    if not official:
-                        if on_skip(home, "bridge-no-official"):
-                            return
-                        continue
-                    print(f"bridge-followed[{apex(home)}]: {home} -> {official}")
-                    home = normalize_candidate_url(official)
-                    if not home:
-                        if on_skip(official, "blocked or empty"):
-                            return
-                        continue
-                    if is_hard_blocked(home):
-                        if on_skip(home, "hard-blocked"):
-                            return
-                        continue
-                    title = ""
                 host = canon_url(home).split("//")[-1].split("/")[0]
                 if rt_block.is_blocked(home):
                     if on_skip(home, "runtime_block"):
@@ -483,6 +403,7 @@ def main(argv: list[str] | None = None):
     if not reason:
         stop, reason = state.should_stop()
     print(format_stop(reason, state))
+    print(f"bridge: tried={BRIDGE_TRIED} success={BRIDGE_SUCCESS}")
     if skip_reasons:
         print("[SUMMARY] skip reasons:")
         for k, v in sorted(skip_reasons.items(), key=lambda x: -x[1]):
