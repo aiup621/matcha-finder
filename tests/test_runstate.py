@@ -30,8 +30,8 @@ def test_rotation_limit_soft():
 
 
 def test_stop_message_format():
-    st = RunState(target=3, max_queries=10, max_rotations=4, skip_rotate_threshold=2)
+    st = RunState(target=3, max_queries=10, max_rotations=4, skip_rotate_threshold=2, phase_max=4)
     st.queries = 5
     st.added = 3
     msg = format_stop("target_met", st)
-    assert msg == "[STOP] reason=target_met added=3/3 rotations=0/4 queries=5/10"
+    assert msg == "[STOP] reason=target_met added=3/3 rotations=1/4 queries=5/10"
