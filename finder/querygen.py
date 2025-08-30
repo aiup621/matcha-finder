@@ -1,7 +1,7 @@
 import re
 
 BASE_TEMPLATES = [
-    "matcha {city} cafe website",
+    "matcha cafe {city} website",
     "{city} matcha cafe official site",
     "best matcha {city} cafe website",
     "third wave coffee {city} matcha website",
