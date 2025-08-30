@@ -1,0 +1,58 @@
+name: Matcha daily
+on:
+  schedule:
+    - cron: "27 1 * * *"
+  workflow_dispatch: {}
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    concurrency:
+      group: matcha-${{ github.ref }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install deps
+        run: python -m pip install -r requirements.txt
+
+      - name: Read countries
+        id: list
+        run: echo "list=$(tr '\n' ',' < data/countries.txt)" >> $GITHUB_OUTPUT
+
+      - name: Process countries
+        continue-on-error: true
+        env:
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+          GOOGLE_CX: ${{ secrets.GOOGLE_CX }}
+          SEARCH_BUDGET: ${{ secrets.SEARCH_BUDGET }}
+        run: |
+          set -e
+          IFS=',' read -ra CS <<< "${{ steps.list.outputs.list }}"
+          for C in "${CS[@]}"; do
+            [ -z "$C" ] && continue
+            echo "=== $C ==="
+            python src/overpass_fetch.py --country "$C" --out "data/seeds_${C}.csv" || true
+            python src/verify_crawl.py --in "data/seeds_${C}.csv" --out "data/results_${C}.csv" || true
+            if [ -n "$GOOGLE_API_KEY" ] && [ -n "$GOOGLE_CX" ]; then
+              python src/fallback_search.py --country "$C" --budget "${SEARCH_BUDGET:-20}" || true
+            fi
+          done
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: results
+          path: data/*.csv
+
+      - name: Commit results back
+        if: github.ref == 'refs/heads/main'
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/*.csv || true
+          git commit -m "chore: update results ($(date -u +'%Y-%m-%d'))" || exit 0
+          git push
