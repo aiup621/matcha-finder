@@ -1,66 +1,41 @@
 # Matcha Finder
 
-Utilities for discovering matcha-serving cafes and collecting contact info.
+Collects cafe websites from OpenStreetMap and checks whether they serve matcha and provide contact options.
 
-## Query limits
+## Setup
 
-`pipeline_smart.py` issues Google CSE queries to discover new sites. To prevent
-excessive usage, the script caps the number of queries per execution. The default
-is 120 queries, but it can be adjusted by setting the `MAX_QUERIES_PER_RUN`
-environment variable:
+1. **Python 3.11**
+2. Install dependencies:
+   ```bash
+   python -m pip install -r requirements.txt
+   ```
+3. Fill `data/countries.txt` with ISO‑2 country codes (one per line).
+4. Configure GitHub Action secrets (`Settings → Secrets and variables → Actions`):
+   - `GOOGLE_API_KEY` – Programmable Search API key (leave empty to skip fallback search)
+   - `GOOGLE_CX` – Programmable Search CX
+   - Optional `SEARCH_BUDGET` – daily query limit
+
+## Usage
+
+Fetch and verify locally for a single country:
 
 ```bash
-export MAX_QUERIES_PER_RUN=80
-python pipeline_smart.py
+python src/overpass_fetch.py --country US --out data/seeds_US.csv
+python src/verify_crawl.py --in data/seeds_US.csv --out data/results_US.csv
+# Optional when API key and CX are provided
+export GOOGLE_API_KEY=xxxx
+export GOOGLE_CX=xxxx
+python src/fallback_search.py --country US --budget 10
 ```
 
-Lowering this value is useful to avoid hitting API limits or generating too many
-requests in a single run.
+## GitHub Actions
 
-## Domain blocklist and cache
+The workflow in `.github/workflows/matcha.yml` runs daily and on manual dispatch. It processes each country, uploads `data/*.csv` as artifacts and, when running on `main`, commits updated results.
 
-Before fetching a URL the crawler checks `config/domain_blocklist.txt` and a
-persistent cache stored under `.cache/`.  Domains listed in the blocklist or
-previously marked as blocked are skipped immediately.  The cache also stores
-hosts and URLs that have already been visited so that re-runs avoid processing
-the same sites.  The cache persists between runs using `actions/cache`, and a
-SQLite database `.cache/crawler.sqlite` stores visit results and skip reasons
-for long-term avoidance.
+## Notes
 
-Set `CLEAR_CACHE=1` to ignore existing cache data and rebuild it from scratch.
-
-## Query tuning
-
-Search queries are now built via `smart_search.QueryBuilder`, which injects
-intent terms and excludes common noise domains.  Configuration lives in
-`config/query_intent.json` and can be overridden via environment variables.
-
-### Environment variables
-
-| Variable | Description |
-| --- | --- |
-| `EXCLUDE_DOMAINS` | Comma-separated extra domains to block before fetching. |
-| `EXCLUDE_DOMAINS_EXTRA` | Additional domains appended to the default blocklist. |
-| `CACHE_VERSION` | Cache namespace version prefix (default `v1`). |
-| `SKIP_ROTATE_THRESHOLD` | Consecutive skip count before query rotation (default 8). |
-| `MAX_ROTATIONS_PER_RUN` | Maximum number of query rotations per run (default 4). |
-| `CITY_SEEDS` | Optional comma-separated list of city, state pairs. |
-| `BLOCKLIST_FILE` | Path to domain blocklist file. |
-| `INTENT_FILE` | Path to query intent configuration. |
-| `CLEAR_CACHE` | Clear `.cache` on start when set to `1`. |
-| `FORCE_ENGLISH_QUERIES` | Force query builder to emit ASCII-only queries (default `0`). |
-| `CACHE_BURST_THRESHOLD` | Cache hit ratio triggering temporary cache bypass (default `0.5`). |
-| `SEARCH_RADIUS_KM` | Base radius in kilometres for nearby city expansion (default `25`). |
-
-These options allow customising search behaviour without modifying the code.
-
-### Rotation behaviour
-
-`pipeline_smart.py` rotates search queries when consecutive skips exceed
-`SKIP_ROTATE_THRESHOLD`. Rotations cycle through cities, add synonym terms and
-optionally tighten context to `menu|hours|contact`. The number of rotations is
-capped by `MAX_ROTATIONS_PER_RUN`.
-
-Runs may end with `0` additions if all rotations fail to produce acceptable
-candidates. Adjust `SKIP_ROTATE_THRESHOLD` or provide a custom `CITY_SEEDS` list
-to explore different regions.
+- Respect robots.txt, rate limits and local laws.
+- The crawler touches only a handful of lightweight paths and sleeps 0.3s per site.
+- Google search fallback is optional and stops gracefully on quota errors.
+- Common failures such as HTTP 429 or timeouts usually resolve after retrying later.
+- Extracting contact information should be done with discretion; do not spam addresses found.
