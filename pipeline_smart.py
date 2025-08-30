@@ -80,6 +80,33 @@ def save_json(path, obj):
         pass
 
 
+def extract_official_site_from_bridge(html: str, url: str) -> str:
+    """Return the first official site found on a bridge page.
+
+    Only a very small subset of bridge domains are supported here as the
+    tests exercise minimal HTML/JSON snippets.  For unsupported inputs an
+    empty string is returned rather than raising an exception so callers can
+    safely do ``'foo' in result``.
+    """
+
+    if "instagram.com" in url:
+        try:
+            data = json.loads(html)
+            return data.get("external_url", "") or ""
+        except Exception:
+            return ""
+
+    m = re.search(r"href=\"(https?://[^\"\s]+)\"", html)
+    if not m:
+        return ""
+    href = m.group(1)
+    if "yelp.com" in url and "biz_redir?url=" in href:
+        from urllib.parse import urlsplit, parse_qs
+
+        href = parse_qs(urlsplit(href).query).get("url", [href])[0]
+    return href
+
+
 def check_cse_quota(api_key: str, cx: str):
     try:
         resp = requests.get(
