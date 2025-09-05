@@ -2,7 +2,7 @@
 from gspread.exceptions import WorksheetNotFound
 from urllib.parse import urlsplit, urlunsplit
 
-ORDER = ["店名","国","公式サイトURL","Instagramリンク","問い合わせアドレス","問い合わせフォームURL"]
+ORDER = ["店名","国","公式サイトURL","Instagramリンク","問い合わせアドレス","問い合わせフォームURL","備考"]
 
 # ヘッダーには一切触れない。存在しなければワークシートを作るだけ。
 def _open_ws(sheet_id, worksheet_name):
@@ -12,7 +12,7 @@ def _open_ws(sheet_id, worksheet_name):
     try:
         ws = sh.worksheet(worksheet_name)
     except WorksheetNotFound:
-        ws = sh.add_worksheet(title=worksheet_name, rows=2000, cols=max(6, len(ORDER)))
+        ws = sh.add_worksheet(title=worksheet_name, rows=2000, cols=max(7, len(ORDER)))
     return ws
 
 def _canon_root(u: str) -> str:

@@ -28,6 +28,21 @@ export GOOGLE_CX=xxxx
 python src/fallback_search.py --country US --budget 10
 ```
 
+### Update contacts from an existing sheet
+
+If a spreadsheet already contains home page URLs in column C, populate
+contact fields for each entry:
+
+```bash
+export SHEET_ID=xxxx              # target spreadsheet
+export ACTION_ROW=2               # starting row (default 2)
+python update_contact_info.py
+```
+
+Column D will be filled with Instagram links, column E with contact
+emails and column F with contact form URLs. When none of these are
+found, column G is set to `"なし"`.
+
 ## GitHub Actions
 
 The workflow in `.github/workflows/matcha.yml` runs daily and on manual dispatch. It processes each country, uploads `data/*.csv` as artifacts and, when running on `main`, commits updated results.
