@@ -1,56 +1,19 @@
-# Matcha Finder
+# Matcha Contact Finder
 
-Collects cafe websites from OpenStreetMap and checks whether they serve matcha and provide contact options.
+このプロジェクトは、既存の抹茶営業リストを更新するためのシンプルなツールです。C列に店舗のホームページ URL がある前提で、そのサイトから以下の情報を取得し、シートに書き込みます。
 
-## Setup
+- D列: Instagram のアカウント URL
+- E列: 問い合わせメールアドレス
+- F列: 問い合わせフォームへのリンク
+- いずれも見つからない場合は G列に `なし` と記入
 
-1. **Python 3.11**
-2. Install dependencies:
-   ```bash
-   python -m pip install -r requirements.txt
-   ```
-3. Fill `data/countries.txt` with ISO‑2 country codes (one per line).
-4. Configure GitHub Action secrets (`Settings → Secrets and variables → Actions`):
-   - `GOOGLE_API_KEY` – Programmable Search API key (leave empty to skip fallback search)
-   - `GOOGLE_CX` – Programmable Search CX
-   - Optional `SEARCH_BUDGET` – daily query limit
+開始行はコマンドライン引数 `--start-row` で指定するか、シートの `A1` に `Action`、`B1` に開始行番号を記載してください。
 
-## Usage
-
-Fetch and verify locally for a single country:
+## 使い方
 
 ```bash
-python src/overpass_fetch.py --country US --out data/seeds_US.csv
-python src/verify_crawl.py --in data/seeds_US.csv --out data/results_US.csv
-# Optional when API key and CX are provided
-export GOOGLE_API_KEY=xxxx
-export GOOGLE_CX=xxxx
-python src/fallback_search.py --country US --budget 10
+pip install -r requirements.txt
+python update_contact_info.py sample.xlsx --start-row 2
 ```
 
-### Update contacts from an existing sheet
-
-If a spreadsheet already contains home page URLs in column C, populate
-contact fields for each entry:
-
-```bash
-export SHEET_ID=xxxx              # target spreadsheet
-export ACTION_ROW=2               # starting row (default 2)
-python update_contact_info.py
-```
-
-Column D will be filled with Instagram links, column E with contact
-emails and column F with contact form URLs. When none of these are
-found, column G is set to `"なし"`.
-
-## GitHub Actions
-
-The workflow in `.github/workflows/matcha.yml` runs daily and on manual dispatch. It processes each country, uploads `data/*.csv` as artifacts and, when running on `main`, commits updated results.
-
-## Notes
-
-- Respect robots.txt, rate limits and local laws.
-- The crawler touches only a handful of lightweight paths and sleeps 0.3s per site.
-- Google search fallback is optional and stops gracefully on quota errors.
-- Common failures such as HTTP 429 or timeouts usually resolve after retrying later.
-- Extracting contact information should be done with discretion; do not spam addresses found.
+このコマンドは `sample.xlsx` の 2 行目から処理を開始します。シート内に `Action` 行を用意している場合、`--start-row` は不要です。
