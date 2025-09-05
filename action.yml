@@ -1,0 +1,33 @@
+name: 'Matcha Contact Finder'
+description: 'Update Excel with contact info found from website URLs'
+author: 'auto-generated'
+inputs:
+  sheet:
+    description: 'Path to Excel file to update'
+    required: true
+  start-row:
+    description: 'Row number to start processing'
+    required: false
+    default: '2'
+  debug:
+    description: 'Enable debug logging'
+    required: false
+    default: 'false'
+runs:
+  using: 'composite'
+  steps:
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+    - name: Install dependencies
+      run: pip install -r requirements.txt
+      shell: bash
+    - name: Run update_contact_info
+      shell: bash
+      run: |
+        if [ "${{ inputs.debug }}" = "true" ]; then
+          python update_contact_info.py "${{ inputs.sheet }}" --start-row "${{ inputs.start-row }}" --debug
+        else
+          python update_contact_info.py "${{ inputs.sheet }}" --start-row "${{ inputs.start-row }}"
+        fi
