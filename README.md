@@ -12,7 +12,7 @@
 ## 使い方
 
 ```bash
-pip install -r requirements.txt
+pip install -r requirements.txt  # 要 Python 3.11
 python update_contact_info.py sample.xlsx --start-row 2 --debug
 ```
 
@@ -36,7 +36,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v4
         with:
-          python-version: '3.x'
+          python-version: '3.11'
       - run: pip install -r requirements.txt
       - run: pytest
 ```
