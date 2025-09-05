@@ -1,27 +1,12 @@
-﻿# Python
+# Python
 __pycache__/
 *.pyc
 
-# 秘密・ローカル状態
+# Local environment
 .env
-service_account.json
-.cse_usage.json
-.seen_roots.json
-.query_yield.json
-.cache/
+*.log
+*.bak*
 
-# ツール設定
+# IDE settings
 .vscode/
 .idea/
-
-# backups & logs
-.env*
-*.bak*
-logs/
-*.log
-
-# backups & logs
-.env*
-*.bak*
-logs/
-*.log
