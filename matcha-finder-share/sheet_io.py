@@ -4,7 +4,7 @@ import gspread
 from google.oauth2.service_account import Credentials
 from rules import normalize_url
 
-HEADERS = ["店名","国","公式サイトURL","問い合わせアドレス","問い合わせフォームURL","Instagramリンク"]
+HEADERS = ["店名","国","公式サイトURL","Instagramリンク","問い合わせアドレス","問い合わせフォームURL","備考"]
 
 def open_sheet():
     scopes = ['https://www.googleapis.com/auth/spreadsheets']
