@@ -1,7 +1,11 @@
 name: 'Matcha Contact Finder'
 description: 'Update Excel with contact info found from website URLs'
 author: 'auto-generated'
+
 inputs:
+  sheet:
+    description: 'Path to Excel file to update'
+    required: true
   start-row:
     description: 'Row number to start processing'
     required: false
@@ -18,6 +22,7 @@ inputs:
     description: 'Enable debug logging'
     required: false
     default: 'false'
+
 runs:
   using: 'composite'
   steps:
@@ -25,20 +30,19 @@ runs:
       uses: actions/setup-python@v4
       with:
         python-version: '3.11'
+
     - name: Install dependencies
       run: pip install -r requirements.txt
       shell: bash
+
     - name: Run update_contact_info
       shell: bash
       run: |
-        sheet="https://docs.google.com/spreadsheets/d/1HU-GqN7sBcORIZrYEw4FkyfNmgDtXsO7CtDLVHEsldA/edit?gid=159511499#gid=159511499"
-        cmd="python update_contact_info.py \"$sheet\""
-        cmd="$cmd --start-row \"${{ inputs.start-row }}\""
-        cmd="$cmd --worksheet \"${{ inputs.worksheet-name }}\""
-        if [ -n "${{ inputs.end-row }}" ]; then
-          cmd="$cmd --end-row \"${{ inputs.end-row }}\""
+        cmd="python update_contact_info.py \"${{ inputs.sheet }}\" --start-row \"${{ inputs['start-row'] }}\" --worksheet \"${{ inputs['worksheet-name'] }}\""
+        if [ -n "${{ inputs['end-row'] }}" ]; then
+          cmd="$cmd --end-row \"${{ inputs['end-row'] }}\""
         fi
         if [ "${{ inputs.debug }}" = "true" ]; then
           cmd="$cmd --debug"
         fi
-        eval $cmd
+        eval "$cmd"

@@ -3,6 +3,9 @@ name: Run Matcha Contact Finder
 on:
   workflow_dispatch:
     inputs:
+      sheet:
+        description: 'Path to Excel file to update'
+        required: true
       start-row:
         description: 'Row number to start processing'
         required: false
@@ -26,8 +29,8 @@ jobs:
       - uses: actions/checkout@v4
       - uses: ./
         with:
-          start-row: ${{ inputs.start-row }}
-          end-row: ${{ inputs.end-row }}
-          worksheet-name: ${{ inputs.worksheet-name }}
+          sheet: ${{ inputs.sheet }}
+          start-row: ${{ inputs['start-row'] }}
+          end-row: ${{ inputs['end-row'] }}
+          worksheet-name: ${{ inputs['worksheet-name'] }}
           debug: ${{ inputs.debug }}
-
