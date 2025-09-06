@@ -15,9 +15,23 @@ def find_instagram(soup, base_url):
     return None
 
 def find_email(soup):
-    mailto = soup.select_one("a[href^=mailto]")
+    """Extract an email address from the page soup.
+
+    The previous implementation only matched ``mailto:`` links written in
+    lowercase.  Some sites, however, use capitalised schemes such as
+    ``MAILTO:`` which caused the function to miss valid e-mail addresses.
+
+    This version performs a case-insensitive search for ``mailto`` links and
+    strips the scheme in a case-insensitive manner as well.  If no explicit
+    ``mailto`` link is present, it falls back to searching the page text with
+    a regular expression.
+    """
+
+    mailto = soup.find("a", href=lambda h: h and h.lower().startswith("mailto:"))
     if mailto and mailto.get("href"):
-        return mailto["href"].split("mailto:")[-1].split("?")[0]
+        href = mailto["href"]
+        # Remove the leading scheme (case-insensitively) and any query string
+        return re.sub(r"^mailto:", "", href, flags=re.I).split("?")[0]
     match = EMAIL_RE.search(soup.get_text())
     if match:
         return match.group(0)
@@ -65,6 +79,9 @@ def process_sheet(path, start_row=None):
             ws.cell(row=row, column=6).value = form
         if not any([insta, email, form]):
             ws.cell(row=row, column=7).value = "なし"
+        # Persist the next row to process so repeated runs can resume
+        if ws["A1"].value == "Action":
+            ws["B1"].value = row + 1
     wb.save(path)
 
 def main():

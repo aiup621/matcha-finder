@@ -1,0 +1,30 @@
+name: Update contact info
+
+on:
+  workflow_dispatch:
+    inputs:
+      sheet:
+        description: 'Path to the Excel file'
+        required: true
+        default: 'contacts.xlsx'
+      start_row:
+        description: 'Row number to start processing'
+        required: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Run update
+        run: |
+          if [ -z "${{ github.event.inputs.start_row }}" ]; then
+            python update_contact_info.py "${{ github.event.inputs.sheet }}"
+          else
+            python update_contact_info.py "${{ github.event.inputs.sheet }}" --start-row ${{ github.event.inputs.start_row }}
+          fi
