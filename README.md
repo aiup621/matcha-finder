@@ -17,4 +17,8 @@ https://docs.google.com/spreadsheets/d/1HU-GqN7sBcORIZrYEw4FkyfNmgDtXsO7CtDLVHEs
 
 ```bash
 pip install -r requirements.txt  # 要 Python 3.11
-python update_contact_info.py sample.xlsx --start-row 2 --end-row 10 --worksheet 'Sheet1' --debug
+# デフォルトのスプレッドシートを更新
+python update_contact_info.py --start-row 2 --end-row 10 --worksheet 'Sheet1' --debug
+# 別のファイルを処理したい場合はパスを指定
+# python update_contact_info.py sample.xlsx --start-row 2 --end-row 10 --worksheet 'Sheet1' --debug
+```
