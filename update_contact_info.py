@@ -8,6 +8,11 @@ from bs4 import BeautifulSoup
 
 EMAIL_RE = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
 
+DEFAULT_SHEET_PATH = (
+    "https://docs.google.com/spreadsheets/d/1HU-GqN7sBcORIZrYEw4FkyfNmgDtXsO7CtDLVHEsldA/"
+    "edit?gid=159511499#gid=159511499"
+)
+
 
 def find_instagram(soup, base_url):
     for a in soup.find_all("a", href=True):
@@ -82,6 +87,8 @@ def process_sheet(path, start_row=None, end_row=None, worksheet="抹茶営業リ
     end_row = min(end_row, ws.max_row)
 
     for row in range(start_row, end_row + 1):
+        if not ws.cell(row=row, column=1).value:
+            break
         url = ws.cell(row=row, column=3).value
         if not url:
             continue
@@ -112,7 +119,12 @@ def process_sheet(path, start_row=None, end_row=None, worksheet="抹茶営業リ
 
 def main():
     parser = argparse.ArgumentParser(description="Update contact info from homepage URLs.")
-    parser.add_argument("sheet", help="Path to Excel file to update")
+    parser.add_argument(
+        "sheet",
+        nargs="?",
+        default=DEFAULT_SHEET_PATH,
+        help="Path to Excel file to update",
+    )
     parser.add_argument("--start-row", type=int, default=None, help="Row number to start processing")
     parser.add_argument("--end-row", type=int, default=None, help="Row number to stop processing (inclusive)")
     parser.add_argument("--worksheet", default="抹茶営業リスト（カフェ）", help="Worksheet name to process")
