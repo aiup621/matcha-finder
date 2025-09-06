@@ -64,6 +64,9 @@ def process_sheet(path, start_row=None, debug=False):
         else:
             start_row = 2
     for row in range(start_row, ws.max_row + 1):
+        # Persist the next row to process so repeated runs can resume
+        if ws["A1"].value == "Action":
+            ws["B1"].value = row + 1
         url = ws.cell(row=row, column=3).value
         if not url:
             continue
@@ -85,9 +88,6 @@ def process_sheet(path, start_row=None, debug=False):
             ws.cell(row=row, column=6).value = form
         if not any([insta, email, form]):
             ws.cell(row=row, column=7).value = "なし"
-        # Persist the next row to process so repeated runs can resume
-        if ws["A1"].value == "Action":
-            ws["B1"].value = row + 1
         logging.info(
             "Row %s result - Insta: %s, Email: %s, Form: %s",
             row, bool(insta), bool(email), bool(form)
