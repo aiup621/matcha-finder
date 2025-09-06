@@ -57,19 +57,28 @@ def find_contact_form(soup, base_url):
 
 def process_sheet(path, start_row=None, end_row=None, worksheet="抹茶営業リスト（カフェ）", debug=False):
     import io
+    import urllib.parse
     import openpyxl
 
     if debug:
         logging.basicConfig(level=logging.INFO)
 
-    # ``openpyxl`` cannot read a workbook directly from a URL.  When a HTTP(S)
-    # path is supplied (e.g. a public Google Sheets link) we first download the
-    # file and load it from memory.  The workbook is then saved to a local file
-    # named ``downloaded.xlsx`` so the caller can inspect the result.  Local
-    # filesystem paths continue to behave as before.
+    # URLが来た場合はダウンロードして BytesIO から読み込む。
+    # Google Sheets の場合は export エンドポイントに書き換え。
     save_path = path
     if isinstance(path, str) and path.startswith("http"):
-        resp = requests.get(path)
+        download_url = path
+        if "docs.google.com/spreadsheets" in path and "/export" not in path:
+            parsed = urllib.parse.urlparse(path)
+            match = re.search(r"/d/([^/]+)", parsed.path)
+            if match:
+                file_id = match.group(1)
+                qs = urllib.parse.parse_qs(parsed.query)
+                gid = qs.get("gid", ["0"])[0]
+                download_url = (
+                    f"https://docs.google.com/spreadsheets/d/{file_id}/export?format=xlsx&gid={gid}"
+                )
+        resp = requests.get(download_url)
         resp.raise_for_status()
         path = io.BytesIO(resp.content)
         save_path = "downloaded.xlsx"
@@ -100,6 +109,7 @@ def process_sheet(path, start_row=None, end_row=None, worksheet="抹茶営業リ
     end_row = min(end_row, ws.max_row)
 
     for row in range(start_row, end_row + 1):
+        # A列が空なら以降は処理しない
         if not ws.cell(row=row, column=1).value:
             break
         url = ws.cell(row=row, column=3).value

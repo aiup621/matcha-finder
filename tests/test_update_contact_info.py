@@ -149,3 +149,49 @@ def test_process_sheet_from_url(tmp_path, monkeypatch):
     wb2 = openpyxl.load_workbook(tmp_path / "downloaded.xlsx")
     ws2 = wb2["Sheet"]
     assert ws2.cell(row=2, column=7).value == "なし"
+
+
+def test_google_sheet_link_is_transformed(monkeypatch, tmp_path):
+    import io
+    import openpyxl
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Sheet"
+    ws.cell(row=2, column=1, value="ok")
+    ws.cell(row=2, column=3, value="http://page")
+    buf = io.BytesIO()
+    wb.save(buf)
+    data = buf.getvalue()
+
+    class WorkbookResponse:
+        def __init__(self, content):
+            self.content = content
+
+        def raise_for_status(self):
+            pass
+
+    class PageResponse:
+        text = "<html></html>"
+
+    def fake_get(url, timeout=10):
+        if url.startswith(
+            "https://docs.google.com/spreadsheets/d/FILEID/export?format=xlsx&gid=0"
+        ):
+            return WorkbookResponse(data)
+        if url == "http://page":
+            return PageResponse()
+        raise AssertionError(f"unexpected url {url}")
+
+    monkeypatch.setattr(uc.requests, "get", fake_get)
+    monkeypatch.chdir(tmp_path)
+    uc.process_sheet(
+        "https://docs.google.com/spreadsheets/d/FILEID/edit?gid=0#gid=0",
+        start_row=2,
+        end_row=2,
+        worksheet="Sheet",
+    )
+
+    wb2 = openpyxl.load_workbook(tmp_path / "downloaded.xlsx")
+    ws2 = wb2["Sheet"]
+    assert ws2.cell(row=2, column=7).value == "なし"
