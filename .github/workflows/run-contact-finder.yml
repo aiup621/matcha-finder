@@ -30,8 +30,7 @@ jobs:
       - uses: ./
         with:
           sheet: ${{ inputs.sheet }}
-          start-row: ${{ inputs.start-row }}
-          end-row: ${{ inputs.end-row }}
-          worksheet-name: ${{ inputs.worksheet-name }}
+          start-row: ${{ inputs['start-row'] }}
+          end-row: ${{ inputs['end-row'] }}
+          worksheet-name: ${{ inputs['worksheet-name'] }}
           debug: ${{ inputs.debug }}
-

@@ -5,6 +5,7 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import update_contact_info as uc
 
+
 def test_find_instagram():
     html = '<a href="https://www.instagram.com/test">IG</a>'
     soup = BeautifulSoup(html, "html.parser")
@@ -40,6 +41,7 @@ def test_process_sheet_row_range(tmp_path, monkeypatch):
 
     wb = openpyxl.Workbook()
     ws = wb.active
+    ws.title = "Sheet"
     ws.cell(row=2, column=3, value="http://a")
     ws.cell(row=3, column=3, value="http://b")
     file = tmp_path / "sample.xlsx"
@@ -49,7 +51,7 @@ def test_process_sheet_row_range(tmp_path, monkeypatch):
     uc.process_sheet(str(file), start_row=2, end_row=2, worksheet="Sheet")
 
     wb2 = openpyxl.load_workbook(file)
-    ws2 = wb2.active
+    ws2 = wb2["Sheet"]
     assert ws2.cell(row=2, column=7).value == "なし"
     assert ws2.cell(row=3, column=7).value is None
 
