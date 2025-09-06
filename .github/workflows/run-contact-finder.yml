@@ -1,0 +1,33 @@
+name: Run Matcha Contact Finder
+
+on:
+  workflow_dispatch:
+    inputs:
+      start-row:
+        description: 'Row number to start processing'
+        required: false
+        default: '2'
+      end-row:
+        description: 'Row number to stop processing (inclusive)'
+        required: false
+      worksheet-name:
+        description: 'Worksheet name to process'
+        required: false
+        default: '抹茶営業リスト（カフェ）'
+      debug:
+        description: 'Enable debug logging'
+        required: false
+        default: 'false'
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./
+        with:
+          start-row: ${{ inputs.start-row }}
+          end-row: ${{ inputs.end-row }}
+          worksheet-name: ${{ inputs.worksheet-name }}
+          debug: ${{ inputs.debug }}
+

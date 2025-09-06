@@ -7,16 +7,17 @@
 - F列: 問い合わせフォームへのリンク
 - いずれも見つからない場合は G列に `なし` と記入
 
-開始行はコマンドライン引数 `--start-row` で指定するか、シートの `A1` に `Action`、`B1` に開始行番号を記載してください。
+開始行はコマンドライン引数 `--start-row` で指定するか、シートの `A1` に `Action`、`B1` に開始行番号を記載してください。指定がない場合は 2 行目から開始されます。終了行を限定したい場合は `--end-row` もしくは `C1` に終了行を指定できます。
+デフォルトではシート名「抹茶営業リスト（カフェ）」を処理しますが、`--worksheet` 引数または GitHub Action の `worksheet-name` で別のシートを指定できます。
 
 ## 使い方
 
 ```bash
 pip install -r requirements.txt  # 要 Python 3.11
-python update_contact_info.py sample.xlsx --start-row 2 --debug
+python update_contact_info.py sample.xlsx --start-row 2 --end-row 10 --worksheet 'Sheet1' --debug
 ```
 
-`--debug` を付けると処理中の URL や失敗したリクエストがログに出力され、デバッグに便利です。このコマンドは `sample.xlsx` の 2 行目から処理を開始します。シート内に `Action` 行を用意している場合、`--start-row` は不要です。
+`--debug` を付けると処理中の URL や失敗したリクエストがログに出力され、デバッグに便利です。このコマンドは `sample.xlsx` の 2 行目から 10 行目まで処理します。シート内に `Action` 行を用意している場合、`--start-row` や `--end-row` は不要です。
 
 ## GitHub Actions での実行
 
@@ -41,7 +42,7 @@ jobs:
       - run: pytest
 ```
 
-独自の Excel ファイルを処理したい場合は、本リポジトリを Action として呼び出すこともできます。
+独自の Excel ファイルを処理したい場合は、本リポジトリを Action として呼び出すこともできますが、リポジトリ内の Workflow では更新対象のシートを固定の Google Spreadsheet（[抹茶営業リスト（カフェ）](https://docs.google.com/spreadsheets/d/1HU-GqN7sBcORIZrYEw4FkyfNmgDtXsO7CtDLVHEsldA/edit?gid=159511499#gid=159511499)）に設定しています。
 
 ```yaml
 jobs:
@@ -51,8 +52,9 @@ jobs:
       - uses: actions/checkout@v4
       - uses: your-org/matcha-finder@v1
         with:
-          sheet: path/to/file.xlsx
-          start-row: 2
+          start-row: 2  # 任意。指定しない場合は2行目から開始
+          end-row: 10
+          worksheet-name: 抹茶営業リスト（カフェ）
           debug: true
 ```
 

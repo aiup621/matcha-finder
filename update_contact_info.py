@@ -47,54 +47,82 @@ def find_contact_form(soup, base_url):
             return href if href.startswith("http") else urljoin(base_url, href)
     return None
 
-def process_sheet(path, start_row=None, debug=False):
+def process_sheet(path, start_row=None, end_row=None, worksheet="抹茶営業リスト（カフェ）", debug=False):
     import openpyxl
 
     if debug:
         logging.basicConfig(level=logging.INFO)
 
     wb = openpyxl.load_workbook(path)
-    ws = wb.active
-    if start_row is None:
+    ws = wb[worksheet]
+
+    # Determine start and end rows. They can be provided via arguments or
+    # specified in the sheet's first row as ``Action`` metadata.
+    if start_row is None or end_row is None:
         if ws["A1"].value == "Action":
-            try:
-                start_row = int(ws["B1"].value)
-            except (TypeError, ValueError):
-                start_row = 2
+            if start_row is None:
+                try:
+                    start_row = int(ws["B1"].value)
+                except (TypeError, ValueError):
+                    start_row = 2
+            if end_row is None:
+                try:
+                    end_row = int(ws["C1"].value)
+                except (TypeError, ValueError):
+                    end_row = ws.max_row
         else:
-            start_row = 2
-    for row in range(start_row, ws.max_row + 1):
+            if start_row is None:
+                start_row = 2
+            if end_row is None:
+                end_row = ws.max_row
+
+    end_row = min(end_row, ws.max_row)
+
+    row = start_row
+    while row <= end_row:
+        # Stop if column A is blank
+        if not ws.cell(row=row, column=1).value:
+            break
         url = ws.cell(row=row, column=3).value
-        if not url:
-            continue
-        logging.info("Processing row %s: %s", row, url)
-        try:
-            res = requests.get(url, timeout=10)
-        except requests.RequestException as e:
-            logging.warning("Request failed for %s: %s", url, e)
-            continue
-        soup = BeautifulSoup(res.text, "html.parser")
-        insta = find_instagram(soup, url)
-        email = find_email(soup)
-        form = find_contact_form(soup, url)
-        if insta:
-            ws.cell(row=row, column=4).value = insta
-        if email:
-            ws.cell(row=row, column=5).value = email
-        if form:
-            ws.cell(row=row, column=6).value = form
-        if not any([insta, email, form]):
-            ws.cell(row=row, column=7).value = "なし"
-        logging.info("Row %s result - Insta: %s, Email: %s, Form: %s", row, bool(insta), bool(email), bool(form))
+        if url:
+            logging.info("Processing row %s: %s", row, url)
+            try:
+                res = requests.get(url, timeout=10)
+            except requests.RequestException as e:
+                logging.warning("Request failed for %s: %s", url, e)
+                row += 1
+                continue
+            soup = BeautifulSoup(res.text, "html.parser")
+            insta = find_instagram(soup, url)
+            email = find_email(soup)
+            form = find_contact_form(soup, url)
+            if insta:
+                ws.cell(row=row, column=4).value = insta
+            if email:
+                ws.cell(row=row, column=5).value = email
+            if form:
+                ws.cell(row=row, column=6).value = form
+            if not any([insta, email, form]):
+                ws.cell(row=row, column=7).value = "なし"
+            logging.info(
+                "Row %s result - Insta: %s, Email: %s, Form: %s",
+                row,
+                bool(insta),
+                bool(email),
+                bool(form),
+            )
+        row += 1
     wb.save(path)
 
 def main():
     parser = argparse.ArgumentParser(description="Update contact info from homepage URLs.")
     parser.add_argument("sheet", help="Path to Excel file to update")
     parser.add_argument("--start-row", type=int, default=None, help="Row number to start processing")
+    parser.add_argument("--end-row", type=int, default=None, help="Row number to stop processing (inclusive)")
+    parser.add_argument("--worksheet", default="抹茶営業リスト（カフェ）", help="Worksheet name to process")
     parser.add_argument("--debug", action="store_true", help="Enable debug logging")
     args = parser.parse_args()
-    process_sheet(args.sheet, args.start_row, args.debug)
+    process_sheet(args.sheet, args.start_row, args.end_row, args.worksheet, args.debug)
 
 if __name__ == "__main__":
     main()
