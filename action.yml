@@ -9,6 +9,10 @@ inputs:
     description: 'Row number to start processing'
     required: false
     default: '2'
+  end-row:
+    description: 'Row number to stop processing (inclusive)'
+    required: false
+    default: ''
   debug:
     description: 'Enable debug logging'
     required: false
@@ -26,8 +30,11 @@ runs:
     - name: Run update_contact_info
       shell: bash
       run: |
-        if [ "${{ inputs.debug }}" = "true" ]; then
-          python update_contact_info.py "${{ inputs.sheet }}" --start-row "${{ inputs.start-row }}" --debug
-        else
-          python update_contact_info.py "${{ inputs.sheet }}" --start-row "${{ inputs.start-row }}"
+        cmd="python update_contact_info.py \"${{ inputs.sheet }}\" --start-row \"${{ inputs.start-row }}\""
+        if [ -n "${{ inputs.end-row }}" ]; then
+          cmd="$cmd --end-row \"${{ inputs.end-row }}\""
         fi
+        if [ "${{ inputs.debug }}" = "true" ]; then
+          cmd="$cmd --debug"
+        fi
+        eval $cmd
