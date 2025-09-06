@@ -17,6 +17,12 @@ def test_find_email_from_mailto():
     assert uc.find_email(soup) == "info@example.com"
 
 
+def test_find_email_from_mailto_case_insensitive():
+    html = '<a href="MAILTO:INFO@EXAMPLE.COM?subject=test">mail</a>'
+    soup = BeautifulSoup(html, "html.parser")
+    assert uc.find_email(soup) == "INFO@EXAMPLE.COM"
+
+
 def test_find_contact_form():
     html = '<a href="/contact">contact</a>'
     soup = BeautifulSoup(html, "html.parser")
