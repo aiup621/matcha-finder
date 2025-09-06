@@ -1,9 +1,9 @@
 from bs4 import BeautifulSoup
-import pathlib, sys
+from pathlib import Path
+import sys
 
-sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import update_contact_info as uc
-
 
 def test_find_instagram():
     html = '<a href="https://www.instagram.com/test">IG</a>'
