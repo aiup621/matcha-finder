@@ -7,16 +7,17 @@
 - F列: 問い合わせフォームへのリンク
 - いずれも見つからない場合は G列に `なし` と記入
 
-開始行はコマンドライン引数 `--start-row` で指定するか、シートの `A1` に `Action`、`B1` に開始行番号を記載してください。
+開始行はコマンドライン引数 `--start-row` で指定するか、シートの `A1` に `Action`、`B1` に開始行番号を記載してください。終了行を限定したい場合は `--end-row` もしくは `C1` に終了行を指定できます。
+デフォルトではシート名「抹茶営業リスト（カフェ）」を処理しますが、`--worksheet` 引数または GitHub Action の `worksheet-name` で別のシートを指定できます。
 
 ## 使い方
 
 ```bash
 pip install -r requirements.txt  # 要 Python 3.11
-python update_contact_info.py sample.xlsx --start-row 2 --debug
+python update_contact_info.py sample.xlsx --start-row 2 --end-row 10 --worksheet 'Sheet1' --debug
 ```
 
-`--debug` を付けると処理中の URL や失敗したリクエストがログに出力され、デバッグに便利です。このコマンドは `sample.xlsx` の 2 行目から処理を開始します。シート内に `Action` 行を用意している場合、`--start-row` は不要です。
+`--debug` を付けると処理中の URL や失敗したリクエストがログに出力され、デバッグに便利です。このコマンドは `sample.xlsx` の 2 行目から 10 行目まで処理します。シート内に `Action` 行を用意している場合、`--start-row` や `--end-row` は不要です。
 
 ## GitHub Actions での実行
 
@@ -53,6 +54,8 @@ jobs:
         with:
           sheet: path/to/file.xlsx
           start-row: 2
+          end-row: 10
+          worksheet-name: 抹茶営業リスト（カフェ）
           debug: true
 ```
 
