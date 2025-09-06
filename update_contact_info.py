@@ -1,4 +1,5 @@
 import argparse
+import logging
 import re
 from urllib.parse import urljoin
 
@@ -46,8 +47,11 @@ def find_contact_form(soup, base_url):
             return href if href.startswith("http") else urljoin(base_url, href)
     return None
 
-def process_sheet(path, start_row=None):
+def process_sheet(path, start_row=None, debug=False):
     import openpyxl
+
+    if debug:
+        logging.basicConfig(level=logging.INFO)
 
     wb = openpyxl.load_workbook(path)
     ws = wb.active
@@ -63,9 +67,11 @@ def process_sheet(path, start_row=None):
         url = ws.cell(row=row, column=3).value
         if not url:
             continue
+        logging.info("Processing row %s: %s", row, url)
         try:
             res = requests.get(url, timeout=10)
-        except requests.RequestException:
+        except requests.RequestException as e:
+            logging.warning("Request failed for %s: %s", url, e)
             continue
         soup = BeautifulSoup(res.text, "html.parser")
         insta = find_instagram(soup, url)
@@ -82,14 +88,22 @@ def process_sheet(path, start_row=None):
         # Persist the next row to process so repeated runs can resume
         if ws["A1"].value == "Action":
             ws["B1"].value = row + 1
+        logging.info(
+            "Row %s result - Insta: %s, Email: %s, Form: %s",
+            row,
+            bool(insta),
+            bool(email),
+            bool(form),
+        )
     wb.save(path)
 
 def main():
     parser = argparse.ArgumentParser(description="Update contact info from homepage URLs.")
     parser.add_argument("sheet", help="Path to Excel file to update")
     parser.add_argument("--start-row", type=int, default=None, help="Row number to start processing")
+    parser.add_argument("--debug", action="store_true", help="Enable debug logging")
     args = parser.parse_args()
-    process_sheet(args.sheet, args.start_row)
+    process_sheet(args.sheet, args.start_row, args.debug)
 
 if __name__ == "__main__":
     main()
