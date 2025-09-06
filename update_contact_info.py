@@ -90,10 +90,7 @@ def process_sheet(path, start_row=None, debug=False):
             ws["B1"].value = row + 1
         logging.info(
             "Row %s result - Insta: %s, Email: %s, Form: %s",
-            row,
-            bool(insta),
-            bool(email),
-            bool(form),
+            row, bool(insta), bool(email), bool(form)
         )
     wb.save(path)
 
