@@ -113,3 +113,39 @@ def test_stop_on_blank_column_a(tmp_path, monkeypatch):
     assert ws2.cell(row=2, column=7).value == "なし"
     assert ws2.cell(row=3, column=7).value is None
     assert ws2.cell(row=4, column=7).value is None
+
+
+def test_process_sheet_from_url(tmp_path, monkeypatch):
+    import io
+    import openpyxl
+
+    # Create an in-memory workbook to be served over a faux HTTP request.
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Sheet"
+    ws.cell(row=2, column=1, value="ok")
+    ws.cell(row=2, column=3, value="http://page")
+    buf = io.BytesIO()
+    wb.save(buf)
+    content = buf.getvalue()
+
+    class WorkbookResponse:
+        def __init__(self, data):
+            self.content = data
+
+        def raise_for_status(self):
+            pass
+
+    class PageResponse:
+        text = "<html></html>"
+
+    def fake_get(url, timeout=10):
+        return WorkbookResponse(content) if url == "http://sheet" else PageResponse()
+
+    monkeypatch.setattr(uc.requests, "get", fake_get)
+    monkeypatch.chdir(tmp_path)
+    uc.process_sheet("http://sheet", start_row=2, end_row=2, worksheet="Sheet")
+
+    wb2 = openpyxl.load_workbook(tmp_path / "downloaded.xlsx")
+    ws2 = wb2["Sheet"]
+    assert ws2.cell(row=2, column=7).value == "なし"
