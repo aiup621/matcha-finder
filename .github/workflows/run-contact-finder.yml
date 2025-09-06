@@ -1,0 +1,23 @@
+name: Run Matcha Contact Finder
+
+on:
+  workflow_dispatch:
+    inputs:
+      sheet:
+        description: 'Path to Excel file to update'
+        required: true
+      start-row:
+        description: 'Row number to start processing'
+        required: true
+        default: '2'
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./
+        with:
+          sheet: ${{ inputs.sheet }}
+          start-row: ${{ inputs.start-row }}
+
