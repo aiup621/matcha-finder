@@ -7,9 +7,6 @@ on:
         description: 'Row number to start processing'
         required: false
         default: '2'
-      end-row:
-        description: 'Row number to stop processing (inclusive)'
-        required: false
       worksheet-name:
         description: 'Worksheet name to process'
         required: false
@@ -27,6 +24,5 @@ jobs:
       - uses: ./
         with:
           start-row: ${{ inputs['start-row'] }}
-          end-row: ${{ inputs['end-row'] }}
           worksheet-name: ${{ inputs['worksheet-name'] }}
           debug: ${{ inputs.debug }}
