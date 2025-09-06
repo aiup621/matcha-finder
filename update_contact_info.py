@@ -7,6 +7,7 @@ import requests
 from bs4 import BeautifulSoup
 
 EMAIL_RE = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
+REQUEST_TIMEOUT = 5
 
 DEFAULT_SHEET_PATH = (
     "https://docs.google.com/spreadsheets/d/1HU-GqN7sBcORIZrYEw4FkyfNmgDtXsO7CtDLVHEsldA/"
@@ -113,11 +114,15 @@ def process_sheet(path, start_row=None, end_row=None, worksheet="抹茶営業リ
         if not ws.cell(row=row, column=1).value:
             break
         url = ws.cell(row=row, column=3).value
-        if not url:
+        if not isinstance(url, str):
+            continue
+        url = url.strip()
+        if not url.lower().startswith(("http://", "https://")):
+            logging.warning("Skipping invalid URL at row %s: %r", row, url)
             continue
         logging.info("Processing row %s: %s", row, url)
         try:
-            res = requests.get(url, timeout=10)
+            res = requests.get(url, timeout=REQUEST_TIMEOUT)
         except requests.RequestException as e:
             logging.warning("Request failed for %s: %s", url, e)
             continue
