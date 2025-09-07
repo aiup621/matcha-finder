@@ -1,162 +1,180 @@
-"""Integration of Custom Search API and Google Sheets API.
+"""Update contact information directly on a Google Sheet via the Sheets API.
 
-This module reads rows from a Google Sheet, searches for the homepage of each
-entry using the Custom Search API and then extracts contact information from
-the homepage using existing helper functions from ``update_contact_info``.
-The results are written back to the sheet.
-
-Usage example::
-
-    python update_contact_info_api.py \
-        --spreadsheet-id SPREADSHEET_ID \
-        --range 'Sheet1!A:G' \
-        --credentials service_account.json \
-        --api-key YOUR_API_KEY \
-        --cx SEARCH_ENGINE_ID
-
-The sheet is expected to have the following structure:
+The sheet is expected to have the following columns:
 
 ================  ============================================================
 Column           Meaning
 ================  ============================================================
-A                Query string (e.g. store name or address)
+A                Arbitrary label used to detect the end of data
 B                Unused
-C                Homepage URL (filled automatically if missing)
-D                Instagram account URL
-E                Contact e-mail address
-F                Contact form URL
-G                "なし" if none of the above could be found
+C                Homepage URL (input)
+D                Instagram URL (output)
+E                E-mail address (output)
+F                Contact form URL (output)
+G                Status column – "なし" if nothing was found, "エラー" on errors
 ================  ============================================================
+
+Only rows starting from ``--start-row`` are processed.  Processing stops when
+column A is blank or when ``--max-rows`` rows have been handled.
+
+Example usage::
+
+    python update_contact_info_api.py \
+        --spreadsheet-id <ID> \
+        --worksheet "抹茶営業リスト（カフェ）" \
+        --start-row 2
 """
 
 from __future__ import annotations
 
 import argparse
 import logging
-from typing import Iterable, List, Optional
+from typing import Optional
 
 import requests
 from bs4 import BeautifulSoup
 from googleapiclient.discovery import build
 from google.oauth2 import service_account
 
-import update_contact_info as uc
+from update_contact_info import (
+    find_contact_form,
+    find_email,
+    find_instagram,
+)
 
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
 
 
-def search_homepage(query: str, api_key: str, cx: str) -> Optional[str]:
-    """Search for the homepage of *query* using Google Custom Search."""
-    service = build("customsearch", "v1", developerKey=api_key)
-    res = service.cse().list(q=query, cx=cx, num=1).execute()
-    items: Iterable[dict] | None = res.get("items")
-    return items[0]["link"] if items else None
+def _build_sheet_service(credentials_file: str) -> "Resource":
+    """Return an authorised Sheets API client."""
 
-
-def _build_sheet_service(credentials_file: str):
     creds = service_account.Credentials.from_service_account_file(
         credentials_file, scopes=SCOPES
     )
     return build("sheets", "v4", credentials=creds)
 
 
-def read_rows(spreadsheet_id: str, range_: str, credentials_file: str) -> List[List[str]]:
-    """Return rows from the given sheet range."""
-    service = _build_sheet_service(credentials_file)
-    result = (
-        service.spreadsheets()
-        .values()
-        .get(spreadsheetId=spreadsheet_id, range=range_)
-        .execute()
-    )
-    return result.get("values", [])
+def _fetch_page(url: str, timeout: float, verify: bool) -> Optional[str]:
+    """Return the page content for ``url`` with simple retry handling."""
 
-
-def update_rows(
-    spreadsheet_id: str, range_: str, values: List[List[str]], credentials_file: str
-) -> None:
-    """Write values into the sheet."""
-    service = _build_sheet_service(credentials_file)
-    (
-        service.spreadsheets()
-        .values()
-        .update(
-            spreadsheetId=spreadsheet_id,
-            range=range_,
-            valueInputOption="RAW",
-            body={"values": values},
-        )
-        .execute()
-    )
+    for _ in range(3):  # at least two retries
+        try:
+            res = requests.get(url, timeout=timeout, verify=verify)
+            res.raise_for_status()
+            return res.text
+        except requests.RequestException:
+            continue
+    return None
 
 
 def process_sheet(
     spreadsheet_id: str,
-    range_: str,
-    api_key: str,
-    cx: str,
+    worksheet: str,
+    start_row: int,
+    max_rows: Optional[int],
+    timeout: float,
+    verify_ssl: bool,
     credentials_file: str,
-    start_row: int = 2,
-    debug: bool = False,
-) -> None:
-    """Read rows from the sheet and update contact information.
+) -> int:
+    """Process rows on the sheet and return the number of updated rows."""
 
-    ``range_`` should encompass columns A through G. Processing stops when an
-    empty value is encountered in column A.
-    """
-    if debug:
-        logging.basicConfig(level=logging.INFO)
+    service = _build_sheet_service(credentials_file)
 
-    rows = read_rows(spreadsheet_id, range_, credentials_file)
+    end_row = "" if max_rows is None else str(start_row + max_rows - 1)
+    read_range = f"{worksheet}!A{start_row}:G{end_row}"
+    result = (
+        service.spreadsheets()
+        .values()
+        .get(spreadsheetId=spreadsheet_id, range=read_range)
+        .execute()
+    )
+    rows = result.get("values", [])
 
-    for index, row in enumerate(rows[start_row - 1 :], start=start_row):
+    updated = 0
+    for offset, row in enumerate(rows):
+        row_index = start_row + offset
         if not row or not row[0]:
-            break  # Stop at first empty row in column A
-        query = row[0]
-        homepage = row[2] if len(row) > 2 else ""
-        if not homepage:
-            homepage = search_homepage(query, api_key, cx)
-        if not homepage:
-            logging.warning("No homepage found for %s", query)
-            continue
-        try:
-            resp = requests.get(homepage, timeout=uc.REQUEST_TIMEOUT)
-        except requests.RequestException as exc:  # pragma: no cover - network
-            logging.warning("Request failed for %s: %s", homepage, exc)
-            continue
-        soup = BeautifulSoup(resp.text, "html.parser")
-        insta = uc.find_instagram(soup, homepage) or ""
-        email = uc.find_email(soup) or ""
-        form = uc.find_contact_form(soup, homepage) or ""
-        none_flag = "なし" if not any([insta, email, form]) else ""
-        values = [[homepage, insta, email, form, none_flag]]
-        update_range = f"C{index}:G{index}"
-        update_rows(spreadsheet_id, update_range, values, credentials_file)
-        logging.info(
-            "Updated row %s - homepage %s", index, homepage
+            break  # Stop when column A is blank
+
+        url = row[2].strip() if len(row) > 2 and isinstance(row[2], str) else ""
+        insta = email = form = ""
+        status = ""
+
+        if not url:
+            status = "なし"
+        elif not url.lower().startswith(("http://", "https://")):
+            status = "エラー"
+        else:
+            content = _fetch_page(url, timeout=timeout, verify=verify_ssl)
+            if content is None:
+                status = "エラー"
+            else:
+                soup = BeautifulSoup(content, "html.parser")
+                insta = find_instagram(soup, url) or ""
+                email = find_email(soup) or ""
+                form = find_contact_form(soup, url) or ""
+                if not any([insta, email, form]):
+                    status = "なし"
+
+        values = [[insta, email, form, status]]
+        update_range = f"{worksheet}!D{row_index}:G{row_index}"
+        (
+            service.spreadsheets()
+            .values()
+            .update(
+                spreadsheetId=spreadsheet_id,
+                range=update_range,
+                valueInputOption="RAW",
+                body={"values": values},
+            )
+            .execute()
         )
+        logging.info(
+            "Processed row %s: IG=%s, email=%s, form=%s, status=%s",
+            row_index,
+            insta or "-",
+            email or "-",
+            form or "-",
+            status or "-",
+        )
+        updated += 1
+        if max_rows is not None and updated >= max_rows:
+            break
+
+    logging.info("Updated %s rows", updated)
+    return updated
 
 
-def main() -> None:  # pragma: no cover - CLI wrapper
+def main() -> None:  # pragma: no cover - CLI entry point
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--spreadsheet-id", required=True)
-    parser.add_argument("--range", default="Sheet1!A:G")
-    parser.add_argument("--credentials", default="credentials.json")
-    parser.add_argument("--api-key", required=True)
-    parser.add_argument("--cx", required=True, help="Custom search engine ID")
+    parser.add_argument("--worksheet", default="抹茶営業リスト（カフェ）")
     parser.add_argument("--start-row", type=int, default=2)
-    parser.add_argument("--debug", action="store_true")
+    parser.add_argument("--max-rows", type=int)
+    parser.add_argument("--timeout", type=float, default=5.0)
+    parser.add_argument(
+        "--verify-ssl", action=argparse.BooleanOptionalAction, default=True
+    )
+    parser.add_argument(
+        "--credentials",
+        default="sa.json",
+        help="Path to service account JSON file",
+    )
     args = parser.parse_args()
+
+    logging.basicConfig(level=logging.INFO, format="%(message)s")
+
     process_sheet(
-        args.spreadsheet_id,
-        args.range,
-        args.api_key,
-        args.cx,
-        args.credentials,
-        args.start_row,
-        args.debug,
+        spreadsheet_id=args.spreadsheet_id,
+        worksheet=args.worksheet,
+        start_row=args.start_row,
+        max_rows=args.max_rows,
+        timeout=args.timeout,
+        verify_ssl=args.verify_ssl,
+        credentials_file=args.credentials,
     )
 
 
-if __name__ == "__main__":  # pragma: no cover - CLI wrapper
+if __name__ == "__main__":  # pragma: no cover - CLI entry point
     main()
+
