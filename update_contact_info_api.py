@@ -28,7 +28,9 @@ Example usage::
 from __future__ import annotations
 
 import argparse
+import json
 import logging
+import os
 from typing import Optional
 
 import requests
@@ -47,6 +49,14 @@ SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
 
 def _build_sheet_service(credentials_file: str) -> "Resource":
     """Return an authorised Sheets API client."""
+
+    if not os.path.exists(credentials_file):
+        raise SystemExit(f"Credentials file not found: {credentials_file}")
+    try:
+        with open(credentials_file, "r", encoding="utf-8") as f:
+            json.load(f)
+    except json.JSONDecodeError as exc:
+        raise SystemExit(f"Invalid service account JSON: {exc}")
 
     creds = service_account.Credentials.from_service_account_file(
         credentials_file, scopes=SCOPES
@@ -163,6 +173,9 @@ def main() -> None:  # pragma: no cover - CLI entry point
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO, format="%(message)s")
+
+    if not args.spreadsheet_id.strip():
+        parser.error("--spreadsheet-id must not be empty")
 
     process_sheet(
         spreadsheet_id=args.spreadsheet_id,
