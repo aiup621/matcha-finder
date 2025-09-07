@@ -38,7 +38,8 @@ jobs:
         run: |
           printf '%s' "$GOOGLE_CREDENTIALS" > sa.json
           python - <<'PY'
-import json; json.load(open('sa.json'))
+import json
+json.load(open('sa.json','r',encoding='utf-8'))
 print('sa.json OK')
 PY
 
