@@ -31,7 +31,9 @@ runs:
     - name: Run update_contact_info
       shell: bash
       run: |
-        cmd="python update_contact_info.py --start-row \"${{ inputs['start-row'] }}\" --worksheet \"${{ inputs['worksheet-name'] }}\""
+        cmd="python update_contact_info.py \
+          --start-row \"${{ inputs['start-row'] }}\" \
+          --worksheet \"${{ inputs['worksheet-name'] }}\""
         if [ "${{ inputs.debug }}" = "true" ]; then
           cmd="$cmd --debug"
         fi
