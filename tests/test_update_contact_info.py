@@ -1,6 +1,7 @@
 from bs4 import BeautifulSoup
 from pathlib import Path
 import sys
+import requests
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import update_contact_info as uc
@@ -12,22 +13,76 @@ def test_find_instagram():
     assert uc.find_instagram(soup, "http://example.com") == "https://www.instagram.com/test"
 
 
-def test_find_email_from_mailto():
-    html = '<a href="mailto:info@example.com">mail</a>'
-    soup = BeautifulSoup(html, "html.parser")
-    assert uc.find_email(soup) == "info@example.com"
+def test_crawl_site_for_email_from_mailto(monkeypatch):
+    pages = {"http://example.com": '<a href="mailto:info@example.com">mail</a>'}
+
+    def fake_fetch(url, timeout=5, verify=True):
+        return pages.get(url)
+
+    monkeypatch.setattr(uc, "_fetch_page", fake_fetch)
+    assert uc.crawl_site_for_email("http://example.com") == "info@example.com"
 
 
-def test_find_email_from_mailto_case_insensitive():
-    html = '<a href="MAILTO:INFO@EXAMPLE.COM?subject=test">mail</a>'
-    soup = BeautifulSoup(html, "html.parser")
-    assert uc.find_email(soup) == "INFO@EXAMPLE.COM"
+def test_crawl_site_for_email_normalizes(monkeypatch):
+    pages = {
+        "http://example.com": "<a href='/next'>next</a>",
+        "http://example.com/next": "Contact: sales[at]example.com",
+    }
+
+    def fake_fetch(url, timeout=5, verify=True):
+        return pages.get(url)
+
+    monkeypatch.setattr(uc, "_fetch_page", fake_fetch)
+    assert (
+        uc.crawl_site_for_email("http://example.com", max_depth=2)
+        == "sales@example.com"
+    )
 
 
-def test_find_contact_form():
+def test_crawl_site_for_email_unescapes(monkeypatch):
+    pages = {"http://example.com": "Contact: info&#64;example.com"}
+
+    def fake_fetch(url, timeout=5, verify=True):
+        return pages.get(url)
+
+    monkeypatch.setattr(uc, "_fetch_page", fake_fetch)
+    assert uc.crawl_site_for_email("http://example.com") == "info@example.com"
+
+
+def test_find_contact_form(monkeypatch):
     html = '<a href="/contact">contact</a>'
     soup = BeautifulSoup(html, "html.parser")
-    assert uc.find_contact_form(soup, "http://example.com") == "http://example.com/contact"
+
+    def fake_fetch(url, timeout=5, verify=True):
+        return "<form></form>" if url.endswith("/contact") else None
+
+    monkeypatch.setattr(uc, "_fetch_page", fake_fetch)
+    assert (
+        uc.find_contact_form(soup, "http://example.com")
+        == "http://example.com/contact"
+    )
+
+
+def test_fetch_page_retries_on_403(monkeypatch):
+    calls = []
+
+    class Resp:
+        def __init__(self, status):
+            self.status_code = status
+            self.text = "ok"
+
+        def raise_for_status(self):
+            if self.status_code >= 400:
+                raise requests.HTTPError(response=self)
+
+    def fake_get(url, timeout, verify=True, headers=None):
+        calls.append(headers.get("User-Agent"))
+        return Resp(403) if len(calls) == 1 else Resp(200)
+
+    monkeypatch.setattr(uc.requests, "get", fake_get)
+    assert uc._fetch_page("http://example.com", timeout=5) == "ok"
+    assert len(calls) == 2
+    assert "Mozilla" in calls[0]
 
 
 def test_process_sheet_row_range(tmp_path, monkeypatch):
@@ -35,8 +90,48 @@ def test_process_sheet_row_range(tmp_path, monkeypatch):
 
     class DummyResponse:
         text = "<html></html>"
+        status_code = 200
 
-    def dummy_get(url, timeout):
+        def raise_for_status(self):
+            pass
+        status_code = 200
+
+        def raise_for_status(self):
+            pass
+        status_code = 200
+
+        def raise_for_status(self):
+            pass
+        status_code = 200
+
+        def raise_for_status(self):
+            pass
+        status_code = 200
+
+        def raise_for_status(self):
+            pass
+        status_code = 200
+
+        def raise_for_status(self):
+            pass
+        status_code = 200
+
+        def raise_for_status(self):
+            pass
+        status_code = 200
+
+        def raise_for_status(self):
+            pass
+        status_code = 200
+
+        def raise_for_status(self):
+            pass
+        status_code = 200
+
+        def raise_for_status(self):
+            pass
+
+    def dummy_get(url, timeout, verify=True, headers=None):
         return DummyResponse()
 
     wb = openpyxl.Workbook()
@@ -62,8 +157,20 @@ def test_process_specific_worksheet(tmp_path, monkeypatch):
 
     class DummyResponse:
         text = "<html></html>"
+        status_code = 200
 
-    def dummy_get(url, timeout):
+        def raise_for_status(self):
+            pass
+        status_code = 200
+
+        def raise_for_status(self):
+            pass
+        status_code = 200
+
+        def raise_for_status(self):
+            pass
+
+    def dummy_get(url, timeout, verify=True, headers=None):
         return DummyResponse()
 
     wb = openpyxl.Workbook()
@@ -90,8 +197,12 @@ def test_stop_on_blank_column_a(tmp_path, monkeypatch):
 
     class DummyResponse:
         text = "<html></html>"
+        status_code = 200
 
-    def dummy_get(url, timeout):
+        def raise_for_status(self):
+            pass
+
+    def dummy_get(url, timeout, verify=True, headers=None):
         return DummyResponse()
 
     wb = openpyxl.Workbook()
@@ -120,8 +231,12 @@ def test_start_row_ignores_action_end(tmp_path, monkeypatch):
 
     class DummyResponse:
         text = "<html></html>"
+        status_code = 200
 
-    def dummy_get(url, timeout):
+        def raise_for_status(self):
+            pass
+
+    def dummy_get(url, timeout, verify=True, headers=None):
         return DummyResponse()
 
     wb = openpyxl.Workbook()
@@ -150,7 +265,7 @@ def test_skip_invalid_url(tmp_path, monkeypatch):
 
     calls = []
 
-    def dummy_get(url, timeout):
+    def dummy_get(url, timeout, verify=True, headers=None):
         calls.append(url)
         return None
 
@@ -194,8 +309,24 @@ def test_process_sheet_from_url(tmp_path, monkeypatch):
 
     class PageResponse:
         text = "<html></html>"
+        status_code = 200
 
-    def fake_get(url, timeout=10):
+        def raise_for_status(self):
+            pass
+        status_code = 200
+
+        def raise_for_status(self):
+            pass
+        status_code = 200
+
+        def raise_for_status(self):
+            pass
+        status_code = 200
+
+        def raise_for_status(self):
+            pass
+
+    def fake_get(url, timeout=10, verify=True, headers=None):
         return WorkbookResponse(content) if url == "http://sheet" else PageResponse()
 
     monkeypatch.setattr(uc.requests, "get", fake_get)
@@ -229,8 +360,12 @@ def test_google_sheet_link_is_transformed(monkeypatch, tmp_path):
 
     class PageResponse:
         text = "<html></html>"
+        status_code = 200
 
-    def fake_get(url, timeout=10):
+        def raise_for_status(self):
+            pass
+
+    def fake_get(url, timeout=10, verify=True, headers=None):
         if url.startswith(
             "https://docs.google.com/spreadsheets/d/FILEID/export?format=xlsx&gid=0"
         ):
@@ -259,12 +394,18 @@ def test_retry_on_ssl_error(tmp_path, monkeypatch):
 
     calls = []
 
-    def dummy_get(url, timeout, verify=True):
+    def dummy_get(url, timeout, verify=True, headers=None):
         calls.append(verify)
         if verify:
             raise SSLError("bad cert")
+
         class DummyResponse:
             text = "<html></html>"
+            status_code = 200
+
+            def raise_for_status(self):
+                pass
+
         return DummyResponse()
 
     wb = openpyxl.Workbook()
@@ -278,7 +419,7 @@ def test_retry_on_ssl_error(tmp_path, monkeypatch):
     monkeypatch.setattr(uc.requests, "get", dummy_get)
     uc.process_sheet(str(file), start_row=2, end_row=2, worksheet="Sheet")
 
-    assert calls == [True, False]
+    assert calls[:2] == [True, False]
     wb2 = openpyxl.load_workbook(file)
     ws2 = wb2["Sheet"]
     assert ws2.cell(row=2, column=7).value == "なし"
@@ -288,7 +429,7 @@ def test_request_failure_marks_error(tmp_path, monkeypatch):
     import openpyxl
     from requests.exceptions import ConnectionError
 
-    def dummy_get(url, timeout, verify=True):
+    def dummy_get(url, timeout, verify=True, headers=None):
         raise ConnectionError("fail")
 
     wb = openpyxl.Workbook()
