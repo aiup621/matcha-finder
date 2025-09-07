@@ -32,6 +32,7 @@ import json
 import logging
 import os
 from typing import Optional
+from urllib.parse import urlparse
 
 import requests
 from bs4 import BeautifulSoup
@@ -89,6 +90,153 @@ def _fetch_page(url: str, timeout: float, verify: bool) -> Optional[str]:
         except requests.RequestException:
             continue
     return None
+
+
+def select_best_email(candidates, site_url, allow_external=False, allow_support=False):
+    """Return the best e-mail candidate from ``candidates``.
+
+    Each candidate is a mapping with ``email``, ``source_url`` and
+    ``anchor_text`` keys.  ``site_url`` is used to determine whether the
+    e-mail address belongs to the same site.  The function returns
+    ``(best, notes, kept, blocked)`` where ``best`` is the chosen e-mail or
+    ``None`` when no suitable address was found, ``notes`` is a list of
+    diagnostic strings, ``kept`` is a list of kept e-mails and ``blocked`` is
+    a list of ``(email, reason)`` tuples describing rejected candidates.
+    """
+
+    def _host_from_url(url: str) -> str:
+        return urlparse(url).netloc.lower() if url else ""
+
+    def _same_site(a: str, b: str) -> bool:
+        return a == b or a.endswith("." + b)
+
+    def _norm_local(local: str) -> str:
+        local = local.lower().split("+", 1)[0]
+        return local.replace(".", "")
+
+    base_host = _host_from_url(site_url)
+
+    BLOCK_LOCAL = (
+        'jobs','job','career','careers','recruit','recruitment','hiring','hr','talent',
+        'press','media','pr',
+        'billing','invoice','accounting','finance',
+        'legal','law','privacy','copyright','dmca','abuse','compliance','security',
+        'admin','webmaster','postmaster','hostmaster',
+        'noreply','donotreply'
+    )
+    SUPPORT_LOCAL = ('support','helpdesk','help')
+
+    STRONG_PLUS = (
+        'wholesale','purchasing','procurement','buyer','buying','sourcing',
+        'supplier','supplies','supply','vendor','vendors',
+        'trade','distributor','distribution','bulk'
+    )
+    MID_PLUS    = ('owner','manager','operations','beverage','fnb','foodandbeverage')
+    SOFT_PLUS   = ('info','contact','hello','enquiries','inquiries','inquiry','team','partnership','partnerships')
+    WEAK_PLUS   = ('sales','orders')
+
+    CONSUMER_ORDER_PATH = (
+        '/order','/order-online','/online-order','/orderonline',
+        '/pickup','/takeout','/delivery','/menu','/menus','/catering','/gift-card','/giftcards'
+    )
+    CONSUMER_ANCHOR = (
+        'order online','order now','takeout','pickup','delivery',
+        'ubereats','doordash','grubhub','deliveroo','menu'
+    )
+    TRADE_HINTS = ('wholesale','trade','distributor','bulk','b2b','wholesale orders','trade orders')
+    PURPOSE_PATH = (
+        '/job','/jobs','/career','/careers','/recruit','/hiring',
+        '/press','/media','/legal','/privacy','/terms','/dmca',
+        '/billing','/invoice'
+    )
+
+    def score_one(e: dict, relax=False):
+        email = (e.get('email') or '').strip()
+        src = e.get('source_url') or ''
+        anchor = (e.get('anchor_text') or '').lower()
+
+        if not email or '@' not in email:
+            return None
+
+        local, domain = email.split('@', 1)
+        nlocal = _norm_local(local)
+        path = urlparse(src).path.lower() if src else ''
+
+        if any(k in nlocal for k in BLOCK_LOCAL):
+            return ('blocked', email, 'blocked:purpose_mismatch')
+        if any(p in path for p in PURPOSE_PATH) or any(p in anchor for p in
+            ('career','careers','recruit','hiring','press','media','legal','privacy','billing','invoice','dmca')):
+            return ('blocked', email, 'blocked:purpose_section')
+
+        if 'orders' in nlocal or nlocal == 'order':
+            if any(p in path for p in CONSUMER_ORDER_PATH) or any(k in anchor for k in CONSUMER_ANCHOR):
+                return ('blocked', email, 'blocked:consumer_order_inbox')
+            if any(k in path for k in TRADE_HINTS) or any(k in anchor for k in TRADE_HINTS):
+                extra_orders_bonus = 3
+            else:
+                extra_orders_bonus = 0
+        else:
+            extra_orders_bonus = 0
+
+        s = 0
+        if any(k in nlocal for k in STRONG_PLUS): s += 6
+        if any(k in nlocal for k in MID_PLUS):    s += 4
+        if any(k in nlocal for k in SOFT_PLUS):   s += 3
+        if any(k in nlocal for k in WEAK_PLUS):   s += 1
+        s += extra_orders_bonus
+
+        same = _same_site(domain.lower(), _host_from_url(src) or base_host)
+        if same: s += 2
+        else:    s -= 1 if relax or allow_external else 2
+
+        if any(k in nlocal for k in SUPPORT_LOCAL):
+            if relax or allow_support:
+                s -= 2
+            else:
+                return ('blocked', email, 'blocked:support_only')
+
+        threshold = 1 if not relax else 0
+        if s < threshold:
+            return ('blocked', email, f'blocked:low_score({s})')
+
+        tie = (
+            0 if same else 1,
+            - (6 if any(k in nlocal for k in STRONG_PLUS) else
+               4 if any(k in nlocal for k in MID_PLUS) else
+               3 if any(k in nlocal for k in SOFT_PLUS) else
+               1 if any(k in nlocal for k in WEAK_PLUS) else 0) - extra_orders_bonus,
+            len(local),
+            email
+        )
+        return ('keep', email, s, tie)
+
+    def run(relax=False):
+        kept = []
+        blocked = []
+        for c in candidates:
+            res = score_one(c, relax=relax)
+            if not res:
+                continue
+            if res[0] == 'keep':
+                kept.append(res[1:])
+            else:
+                blocked.append((res[1], res[2]))
+        return kept, blocked
+
+    kept, blocked = run(relax=False)
+    notes = []
+    if not kept:
+        kept, blocked_relax = run(relax=True)
+        blocked.extend(b for b in blocked_relax if b not in blocked)
+        if kept:
+            notes.append('relaxed')
+
+    best = None
+    if kept:
+        kept.sort(key=lambda x: (-x[1], x[2]))
+        best = kept[0][0]
+    kept_emails = [k[0] for k in kept]
+    return best, notes, kept_emails, blocked
 
 
 def process_sheet(
