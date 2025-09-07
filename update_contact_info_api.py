@@ -10,8 +10,10 @@ B                Unused
 C                Homepage URL (input)
 D                Instagram URL (output)
 E                E-mail address (output)
-F                Contact form URL (output)
-G                Status column – "なし" if nothing was found, "エラー" on errors
+F                E-mail source (output)
+G                E-mail confidence (output)
+H                Contact form URL (output)
+I                Status column – "なし" if nothing was found, "エラー" on errors
 ================  ============================================================
 
 Only rows starting from ``--start-row`` are processed.  Processing stops when
@@ -41,8 +43,16 @@ from google.oauth2 import service_account
 
 from update_contact_info import (
     find_contact_form,
-    crawl_site_for_email,
     find_instagram,
+)
+try:
+    import tldextract
+except Exception:  # pragma: no cover - optional dependency
+    tldextract = None
+from email_extractors import (
+    extract_emails_from_html,
+    crawl_candidate_paths,
+    pick_best,
 )
 
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
@@ -90,6 +100,49 @@ def _fetch_page(url: str, timeout: float, verify: bool) -> Optional[str]:
         except requests.RequestException:
             continue
     return None
+
+
+HDRS = {
+    "User-Agent": "Mozilla/5.0 (+https://github.com/aiup621/matcha-finder)"
+}
+
+
+def fetch_html(url: str) -> str:
+    r = requests.get(url, headers=HDRS, timeout=20)
+    r.raise_for_status()
+    return r.content.decode(errors="ignore")
+
+
+def collect_emails(url: str) -> tuple[str | None, str, str]:
+    html_text = fetch_html(url)
+    emails = extract_emails_from_html(url, html_text)
+    source = "home"
+
+    if not emails:
+        for u, h in crawl_candidate_paths(url, fetch_html, max_pages=5):
+            e2 = extract_emails_from_html(u, h)
+            if e2:
+                emails |= e2
+                source = "contact-like"
+                break
+
+    best = pick_best(emails)
+    if best:
+        conf = "high" if any(
+            k in best.lower() for k in ["wholesale", "order", "retail", "sales", "buy", "purchas"]
+        ) else "mid"
+        return best, source, conf
+
+    if tldextract:
+        ext = tldextract.extract(url)
+        domain = ".".join([ext.domain, ext.suffix]) if ext.suffix else ext.domain
+    else:
+        parsed = urlparse(url)
+        domain = parsed.netloc.lower()
+        if domain.startswith("www."):
+            domain = domain[4:]
+    for fb in (f"info@{domain}", f"contact@{domain}"):
+        return fb, "fallback", "low"
 
 
 def select_best_email(candidates, site_url, allow_external=False, allow_support=False):
@@ -269,7 +322,7 @@ def process_sheet(
             break  # Stop when column A is blank
 
         url = row[2].strip() if len(row) > 2 and isinstance(row[2], str) else ""
-        insta = email = form = ""
+        insta = email = form = email_source = email_conf = ""
         status = ""
 
         if not url:
@@ -283,17 +336,16 @@ def process_sheet(
             else:
                 soup = BeautifulSoup(content, "html.parser")
                 insta = find_instagram(soup, url) or ""
-                email = crawl_site_for_email(
-                    url, timeout=timeout, verify=verify_ssl
-                ) or ""
+                best_email, email_source, email_conf = collect_emails(url)
+                email = best_email or ""
                 form = find_contact_form(
                     soup, url, timeout=timeout, verify=verify_ssl
                 ) or ""
                 if not any([insta, email, form]):
                     status = "なし"
 
-        values = [[insta, email, form, status]]
-        update_range = f"{worksheet}!D{row_index}:G{row_index}"
+        values = [[insta, email, email_source, email_conf, form, status]]
+        update_range = f"{worksheet}!D{row_index}:I{row_index}"
         (
             service.spreadsheets()
             .values()
