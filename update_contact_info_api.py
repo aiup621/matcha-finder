@@ -40,7 +40,7 @@ from google.oauth2 import service_account
 
 from update_contact_info import (
     find_contact_form,
-    find_email,
+    crawl_site_for_email,
     find_instagram,
 )
 
@@ -65,13 +65,27 @@ def _build_sheet_service(credentials_file: str) -> "Resource":
 
 
 def _fetch_page(url: str, timeout: float, verify: bool) -> Optional[str]:
-    """Return the page content for ``url`` with simple retry handling."""
+    """Return the page content for ``url`` with retry handling."""
 
-    for _ in range(3):  # at least two retries
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/120.0.0.0 Safari/537.36"
+        )
+    }
+
+    for _ in range(3):
         try:
-            res = requests.get(url, timeout=timeout, verify=verify)
+            res = requests.get(url, timeout=timeout, verify=verify, headers=headers)
+            if res.status_code == 403:
+                continue
             res.raise_for_status()
             return res.text
+        except requests.exceptions.SSLError:
+            if verify:
+                verify = False
+                continue
         except requests.RequestException:
             continue
     return None
@@ -121,8 +135,12 @@ def process_sheet(
             else:
                 soup = BeautifulSoup(content, "html.parser")
                 insta = find_instagram(soup, url) or ""
-                email = find_email(soup) or ""
-                form = find_contact_form(soup, url) or ""
+                email = crawl_site_for_email(
+                    url, timeout=timeout, verify=verify_ssl
+                ) or ""
+                form = find_contact_form(
+                    soup, url, timeout=timeout, verify=verify_ssl
+                ) or ""
                 if not any([insta, email, form]):
                     status = "なし"
 

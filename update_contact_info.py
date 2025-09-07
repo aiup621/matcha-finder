@@ -1,7 +1,9 @@
 import argparse
+import html
 import logging
 import re
-from urllib.parse import urljoin
+from collections import deque
+from urllib.parse import urljoin, urlparse
 
 import requests
 from bs4 import BeautifulSoup
@@ -15,6 +17,35 @@ DEFAULT_SHEET_PATH = (
 )
 
 
+def _fetch_page(url, timeout=REQUEST_TIMEOUT, verify=True):
+    """Return the page text with a browser-like ``User-Agent``.
+
+    The function retries on HTTP 403 responses and SSL errors.  When an SSL
+    error occurs the certificate verification is disabled for the retry."""
+
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/120.0.0.0 Safari/537.36"
+        )
+    }
+    for _ in range(3):
+        try:
+            res = requests.get(url, timeout=timeout, verify=verify, headers=headers)
+            if res.status_code == 403:
+                continue
+            res.raise_for_status()
+            return res.text
+        except requests.exceptions.SSLError:
+            if verify:
+                verify = False
+                continue
+        except requests.RequestException:
+            continue
+    return None
+
+
 def find_instagram(soup, base_url):
     for a in soup.find_all("a", href=True):
         href = a["href"]
@@ -23,36 +54,64 @@ def find_instagram(soup, base_url):
     return None
 
 
-def find_email(soup):
-    """Extract an email address from the page soup.
+def crawl_site_for_email(base_url, max_depth=1, timeout=REQUEST_TIMEOUT, verify=True):
+    """Crawl ``base_url`` breadth-first looking for an email address."""
 
-    The previous implementation only matched ``mailto:`` links written in
-    lowercase.  Some sites, however, use capitalised schemes such as
-    ``MAILTO:`` which caused the function to miss valid e-mail addresses.
+    parsed = urlparse(base_url)
+    domain = parsed.netloc
+    queue = deque([(base_url, 0)])
+    visited = set()
 
-    This version performs a case-insensitive search for ``mailto`` links and
-    strips the scheme in a case-insensitive manner as well.  If no explicit
-    ``mailto`` link is present, it falls back to searching the page text with
-    a regular expression.
-    """
-    mailto = soup.find("a", href=lambda h: h and h.lower().startswith("mailto:"))
-    if mailto and mailto.get("href"):
-        href = mailto["href"]
-        # Remove the leading scheme (case-insensitively) and any query string
-        return re.sub(r"^mailto:", "", href, flags=re.I).split("?")[0]
-    match = EMAIL_RE.search(soup.get_text())
-    if match:
-        return match.group(0)
+    while queue:
+        url, depth = queue.popleft()
+        if url in visited or depth > max_depth:
+            continue
+        visited.add(url)
+
+        content = _fetch_page(url, timeout=timeout, verify=verify)
+        if not content:
+            continue
+
+        soup = BeautifulSoup(content, "html.parser")
+
+        mailto = soup.find("a", href=lambda h: h and h.lower().startswith("mailto:"))
+        if mailto and mailto.get("href"):
+            href = mailto["href"]
+            return re.sub(r"^mailto:", "", href, flags=re.I).split("?")[0]
+
+        text = html.unescape(soup.get_text(" "))
+        for pattern in ["[at]", "(at)", "＠"]:
+            text = text.replace(pattern, "@")
+        match = EMAIL_RE.search(text)
+        if match:
+            return match.group(0)
+
+        if depth < max_depth:
+            for a in soup.find_all("a", href=True):
+                link = urljoin(url, a["href"])
+                if urlparse(link).netloc == domain and link not in visited:
+                    queue.append((link, depth + 1))
     return None
 
 
-def find_contact_form(soup, base_url):
+def find_contact_form(soup, base_url, timeout=REQUEST_TIMEOUT, verify=True):
+    candidates = []
+    keywords = ["contact", "お問い合わせ", "お問合せ", "inquiry"]
     for a in soup.find_all("a", href=True):
         text = (a.get_text() or "").lower()
         href = a["href"]
-        keywords = ["contact", "お問い合わせ", "お問合せ", "inquiry"]
-        if any(k in text for k in keywords) or any(k in href.lower() for k in keywords + ["form"]):
-            return href if href.startswith("http") else urljoin(base_url, href)
+        if any(k in text for k in keywords) or any(
+            k in href.lower() for k in keywords + ["form"]
+        ):
+            full = href if href.startswith("http") else urljoin(base_url, href)
+            candidates.append(full)
+
+    for link in candidates:
+        content = _fetch_page(link, timeout=timeout, verify=verify)
+        if not content:
+            continue
+        if BeautifulSoup(content, "html.parser").find("form"):
+            return link
     return None
 
 
@@ -122,25 +181,14 @@ def process_sheet(path, start_row=None, end_row=None, worksheet="抹茶営業リ
             logging.warning("Skipping invalid URL at row %s: %r", row, url)
             continue
         logging.info("Processing row %s: %s", row, url)
-        try:
-            res = requests.get(url, timeout=REQUEST_TIMEOUT)
-        except requests.exceptions.SSLError:
-            try:
-                res = requests.get(url, timeout=REQUEST_TIMEOUT, verify=False)
-            except requests.RequestException as e:
-                logging.warning(
-                    "Request failed for row %s (%s): %s", row, url, e
-                )
-                ws.cell(row=row, column=7).value = "エラー"
-                continue
-        except requests.RequestException as e:
-            logging.warning("Request failed for row %s (%s): %s", row, url, e)
+        content = _fetch_page(url, timeout=REQUEST_TIMEOUT)
+        if content is None:
             ws.cell(row=row, column=7).value = "エラー"
             continue
-        soup = BeautifulSoup(res.text, "html.parser")
+        soup = BeautifulSoup(content, "html.parser")
         insta = find_instagram(soup, url)
-        email = find_email(soup)
-        form = find_contact_form(soup, url)
+        email = crawl_site_for_email(url, timeout=REQUEST_TIMEOUT)
+        form = find_contact_form(soup, url, timeout=REQUEST_TIMEOUT)
         if insta:
             ws.cell(row=row, column=4).value = insta
         if email:
