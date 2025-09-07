@@ -11,6 +11,9 @@ on:
         description: 'Worksheet title'
         required: false
         default: '抹茶営業リスト（カフェ）'
+  push:
+    branches:
+      - main
 
 jobs:
   update:
