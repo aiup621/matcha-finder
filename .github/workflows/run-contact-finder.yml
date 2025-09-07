@@ -21,34 +21,26 @@ jobs:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
+        with: { python-version: '3.11' }
 
       - run: pip install -r requirements.txt
 
-      # 1) 必須Secretsの存在チェック
       - name: Validate required secrets
         run: |
           [ -n "${{ secrets.GOOGLE_CREDENTIALS }}" ] || { echo "Missing secret: GOOGLE_CREDENTIALS"; exit 1; }
           [ -n "${{ secrets.SPREADSHEET_ID }}" ] || { echo "Missing secret: SPREADSHEET_ID"; exit 1; }
 
-      # 2) sa.json を安全に作成し、JSON妥当性を検証
       - name: Write and validate service account key
-        env:
-          GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
+        env: { GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }} }
         run: |
           printf '%s' "$GOOGLE_CREDENTIALS" > sa.json
           python - <<'PY'
-import json, sys
-with open('sa.json','r',encoding='utf-8') as f:
-    json.load(f)
-print("sa.json OK")
+import json; json.load(open('sa.json'))
+print('sa.json OK')
 PY
 
-      # 3) スクリプトを実行（SPREADSHEET_ID を env で注入）
       - name: Update contacts on Google Sheet
-        env:
-          SPREADSHEET_ID: ${{ secrets.SPREADSHEET_ID }}
+        env: { SPREADSHEET_ID: ${{ secrets.SPREADSHEET_ID }} }
         run: |
           python update_contact_info_api.py \
             --spreadsheet-id "$SPREADSHEET_ID" \
