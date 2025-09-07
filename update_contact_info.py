@@ -87,25 +87,26 @@ def process_sheet(path, start_row=None, end_row=None, worksheet="抹茶営業リ
     wb = openpyxl.load_workbook(path)
     ws = wb[worksheet]
 
-    # Determine start and end rows. They can be provided via arguments or
-    # specified in the sheet's first row as ``Action`` metadata.
-    if start_row is None or end_row is None:
-        if ws["A1"].value == "Action":
-            if start_row is None:
-                try:
-                    start_row = int(ws["B1"].value)
-                except (TypeError, ValueError):
-                    start_row = 2
-            if end_row is None:
-                try:
-                    end_row = int(ws["C1"].value)
-                except (TypeError, ValueError):
-                    end_row = ws.max_row
-        else:
-            if start_row is None:
-                start_row = 2
-            if end_row is None:
-                end_row = ws.max_row
+    # Determine start and end rows.  If both are unspecified and the sheet
+    # contains ``Action`` metadata in the first row, honour those values.
+    # Otherwise, default to starting from row 2 and processing until the last
+    # row in the sheet.  This ensures that explicitly providing ``start_row``
+    # via the command line causes the script to keep scanning downward until
+    # column A becomes blank, regardless of any value in ``C1``.
+    if start_row is None and end_row is None and ws["A1"].value == "Action":
+        try:
+            start_row = int(ws["B1"].value)
+        except (TypeError, ValueError):
+            start_row = 2
+        try:
+            end_row = int(ws["C1"].value)
+        except (TypeError, ValueError):
+            end_row = ws.max_row
+    else:
+        if start_row is None:
+            start_row = 2
+        if end_row is None:
+            end_row = ws.max_row
 
     end_row = min(end_row, ws.max_row)
 
