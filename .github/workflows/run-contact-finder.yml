@@ -37,11 +37,7 @@ jobs:
           GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
         run: |
           printf '%s' "$GOOGLE_CREDENTIALS" > sa.json
-          python - <<'PY'
-import json
-json.load(open('sa.json','r',encoding='utf-8'))
-print('sa.json OK')
-PY
+          python -c "import json; json.load(open('sa.json','r',encoding='utf-8')); print('sa.json OK')"
 
       - name: Update contacts on Google Sheet
         env:
