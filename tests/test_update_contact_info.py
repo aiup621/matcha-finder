@@ -5,6 +5,7 @@ import requests
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import update_contact_info as uc
+from update_contact_info_api import select_best_email
 
 
 def test_find_instagram():
@@ -446,3 +447,16 @@ def test_request_failure_marks_error(tmp_path, monkeypatch):
     wb2 = openpyxl.load_workbook(file)
     ws2 = wb2["Sheet"]
     assert ws2.cell(row=2, column=7).value == "エラー"
+
+
+def test_orders_blocked_on_consumer_context():
+    c = [{'email':'orders@cafe.com','source_url':'https://cafe.com/menu','anchor_text':'Order online'}]
+    best, notes, kept, blocked = select_best_email(c, 'https://cafe.com')
+    assert best is None
+    assert any('consumer_order_inbox' in b[1] for b in blocked)
+
+
+def test_orders_allowed_on_trade_context():
+    c = [{'email':'orders@cafe.com','source_url':'https://cafe.com/wholesale','anchor_text':'Wholesale orders'}]
+    best, notes, kept, blocked = select_best_email(c, 'https://cafe.com')
+    assert best == 'orders@cafe.com'
