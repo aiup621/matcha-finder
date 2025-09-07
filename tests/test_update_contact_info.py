@@ -115,6 +115,36 @@ def test_stop_on_blank_column_a(tmp_path, monkeypatch):
     assert ws2.cell(row=4, column=7).value is None
 
 
+def test_start_row_ignores_action_end(tmp_path, monkeypatch):
+    import openpyxl
+
+    class DummyResponse:
+        text = "<html></html>"
+
+    def dummy_get(url, timeout):
+        return DummyResponse()
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Sheet"
+    ws.cell(row=1, column=1, value="Action")
+    ws.cell(row=1, column=3, value=2)  # would normally stop at row 2
+    ws.cell(row=2, column=1, value="ok")
+    ws.cell(row=2, column=3, value="http://a")
+    ws.cell(row=3, column=1, value="ok")
+    ws.cell(row=3, column=3, value="http://b")
+    file = tmp_path / "sample.xlsx"
+    wb.save(file)
+
+    monkeypatch.setattr(uc.requests, "get", dummy_get)
+    uc.process_sheet(str(file), start_row=2, worksheet="Sheet")
+
+    wb2 = openpyxl.load_workbook(file)
+    ws2 = wb2["Sheet"]
+    assert ws2.cell(row=2, column=7).value == "なし"
+    assert ws2.cell(row=3, column=7).value == "なし"
+
+
 def test_skip_invalid_url(tmp_path, monkeypatch):
     import openpyxl
 
@@ -221,3 +251,57 @@ def test_google_sheet_link_is_transformed(monkeypatch, tmp_path):
     wb2 = openpyxl.load_workbook(tmp_path / "downloaded.xlsx")
     ws2 = wb2["Sheet"]
     assert ws2.cell(row=2, column=7).value == "なし"
+
+
+def test_retry_on_ssl_error(tmp_path, monkeypatch):
+    import openpyxl
+    from requests.exceptions import SSLError
+
+    calls = []
+
+    def dummy_get(url, timeout, verify=True):
+        calls.append(verify)
+        if verify:
+            raise SSLError("bad cert")
+        class DummyResponse:
+            text = "<html></html>"
+        return DummyResponse()
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Sheet"
+    ws.cell(row=2, column=1, value="ok")
+    ws.cell(row=2, column=3, value="https://a")
+    file = tmp_path / "sample.xlsx"
+    wb.save(file)
+
+    monkeypatch.setattr(uc.requests, "get", dummy_get)
+    uc.process_sheet(str(file), start_row=2, end_row=2, worksheet="Sheet")
+
+    assert calls == [True, False]
+    wb2 = openpyxl.load_workbook(file)
+    ws2 = wb2["Sheet"]
+    assert ws2.cell(row=2, column=7).value == "なし"
+
+
+def test_request_failure_marks_error(tmp_path, monkeypatch):
+    import openpyxl
+    from requests.exceptions import ConnectionError
+
+    def dummy_get(url, timeout, verify=True):
+        raise ConnectionError("fail")
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Sheet"
+    ws.cell(row=2, column=1, value="ok")
+    ws.cell(row=2, column=3, value="https://a")
+    file = tmp_path / "sample.xlsx"
+    wb.save(file)
+
+    monkeypatch.setattr(uc.requests, "get", dummy_get)
+    uc.process_sheet(str(file), start_row=2, end_row=2, worksheet="Sheet")
+
+    wb2 = openpyxl.load_workbook(file)
+    ws2 = wb2["Sheet"]
+    assert ws2.cell(row=2, column=7).value == "エラー"
