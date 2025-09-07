@@ -22,3 +22,19 @@ python update_contact_info.py --start-row 2 --end-row 10 --worksheet 'Sheet1' --
 # 別のファイルを処理したい場合はパスを指定
 # python update_contact_info.py sample.xlsx --start-row 2 --end-row 10 --worksheet 'Sheet1' --debug
 ```
+
+## Google API を使って直接シートを更新する
+
+`update_contact_info_api.py` は Google Sheets API と Custom Search API を
+利用してスプレッドシートに直接アクセスし、店舗名などからホーム
+ページを検索して連絡先情報を記入します。事前にサービスアカウン
+トの認証情報と Custom Search API の API キー／検索エンジン ID を
+用意してください。
+
+```bash
+python update_contact_info_api.py \
+    --spreadsheet-id <SPREADSHEET_ID> \
+    --credentials service_account.json \
+    --api-key <API_KEY> \
+    --cx <SEARCH_ENGINE_ID>
+```
