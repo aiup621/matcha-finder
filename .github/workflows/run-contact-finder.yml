@@ -28,9 +28,12 @@ jobs:
       - run: pip install -r requirements.txt
 
       - name: Validate required secrets
+        env:
+          GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
+          SPREADSHEET_ID: ${{ secrets.SPREADSHEET_ID }}
         run: |
-          [ -n "${{ secrets.GOOGLE_CREDENTIALS }}" ] || { echo "Missing secret: GOOGLE_CREDENTIALS"; exit 1; }
-          [ -n "${{ secrets.SPREADSHEET_ID }}" ] || { echo "Missing secret: SPREADSHEET_ID"; exit 1; }
+          [ -n "$GOOGLE_CREDENTIALS" ] || { echo "Missing secret: GOOGLE_CREDENTIALS"; exit 1; }
+          [ -n "$SPREADSHEET_ID" ] || { echo "Missing secret: SPREADSHEET_ID"; exit 1; }
 
       - name: Write and validate service account key
         env:
