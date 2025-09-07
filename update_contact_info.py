@@ -123,8 +123,18 @@ def process_sheet(path, start_row=None, end_row=None, worksheet="抹茶営業リ
         logging.info("Processing row %s: %s", row, url)
         try:
             res = requests.get(url, timeout=REQUEST_TIMEOUT)
+        except requests.exceptions.SSLError:
+            try:
+                res = requests.get(url, timeout=REQUEST_TIMEOUT, verify=False)
+            except requests.RequestException as e:
+                logging.warning(
+                    "Request failed for row %s (%s): %s", row, url, e
+                )
+                ws.cell(row=row, column=7).value = "エラー"
+                continue
         except requests.RequestException as e:
-            logging.warning("Request failed for %s: %s", url, e)
+            logging.warning("Request failed for row %s (%s): %s", row, url, e)
+            ws.cell(row=row, column=7).value = "エラー"
             continue
         soup = BeautifulSoup(res.text, "html.parser")
         insta = find_instagram(soup, url)
