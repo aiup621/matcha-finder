@@ -1,11 +1,53 @@
-name: TEMP bring back Run button
+name: Run Matcha Contact Finder (Sheets API)
+
 on:
   workflow_dispatch:
+    inputs:
+      start-row:
+        description: 'Row number to start processing'
+        required: false
+        default: '1508'
+      worksheet-name:
+        description: 'Worksheet title'
+        required: false
+        default: '抹茶営業リスト（カフェ）'
   push:
-    branches: [ main ]
+    branches:
+      - main
 
 jobs:
-  noop:
+  update:
     runs-on: ubuntu-latest
     steps:
-      - run: echo "ok"
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - run: pip install -r requirements.txt
+
+      - name: Validate required secrets
+        run: |
+          [ -n "${{ secrets.GOOGLE_CREDENTIALS }}" ] || { echo "Missing secret: GOOGLE_CREDENTIALS"; exit 1; }
+          [ -n "${{ secrets.SPREADSHEET_ID }}" ] || { echo "Missing secret: SPREADSHEET_ID"; exit 1; }
+
+      - name: Write and validate service account key
+        env:
+          GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
+        run: |
+          printf '%s' "$GOOGLE_CREDENTIALS" > sa.json
+          python - <<'PY'
+import json
+json.load(open('sa.json','r',encoding='utf-8'))
+print('sa.json OK')
+PY
+
+      - name: Update contacts on Google Sheet
+        env:
+          SPREADSHEET_ID: ${{ secrets.SPREADSHEET_ID }}
+        run: |
+          python update_contact_info_api.py \
+            --spreadsheet-id "$SPREADSHEET_ID" \
+            --worksheet "${{ inputs['worksheet-name'] }}" \
+            --start-row "${{ inputs['start-row'] }}"
