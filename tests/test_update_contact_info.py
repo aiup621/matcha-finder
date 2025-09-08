@@ -460,3 +460,10 @@ def test_orders_allowed_on_trade_context():
     c = [{'email':'orders@cafe.com','source_url':'https://cafe.com/wholesale','anchor_text':'Wholesale orders'}]
     best, notes, kept, blocked = select_best_email(c, 'https://cafe.com')
     assert best == 'orders@cafe.com'
+
+
+def test_catering_blocked():
+    c = [{'email': 'catering@cafe.com', 'source_url': 'https://cafe.com', 'anchor_text': ''}]
+    best, notes, kept, blocked = select_best_email(c, 'https://cafe.com')
+    assert best is None
+    assert ('catering@cafe.com', 'blocked:purpose_mismatch') in blocked
