@@ -41,54 +41,9 @@ from google.oauth2 import service_account
 
 from update_contact_info import (
     find_contact_form,
+    crawl_site_for_email,
     find_instagram,
 )
-from email_extractors import (
-    extract_emails_from_html,
-    crawl_candidate_paths,
-    pick_best,
-)
-
-HDRS = {
-    "User-Agent": "Mozilla/5.0 (+https://github.com/aiup621/matcha-finder)"
-}
-
-
-def fetch_html(url: str) -> str:
-    r = requests.get(url, headers=HDRS, timeout=20)
-    r.raise_for_status()
-    return r.content.decode(errors="ignore")
-
-
-def collect_emails(url: str) -> tuple[str | None, str, str]:
-    """Return (best_email, source, confidence)."""
-    html_text = fetch_html(url)
-    emails = extract_emails_from_html(url, html_text)
-
-    if not emails:
-        for u, h in crawl_candidate_paths(url, fetch_html, max_pages=5):
-            e2 = extract_emails_from_html(u, h)
-            if e2:
-                emails.update(e2)
-                break
-
-    best = pick_best(emails.keys())
-    if best:
-        conf = (
-            "high"
-            if any(k in best.lower() for k in ["wholesale", "order", "retail", "sales", "buy", "purchas"])
-            else "mid"
-        )
-        return best, emails.get(best, "plain"), conf
-
-    parsed = urlparse(url)
-    host = parsed.hostname or ""
-    parts = host.split(".")
-    domain = ".".join(parts[-2:]) if len(parts) >= 2 else host
-    for fb in (f"info@{domain}", f"contact@{domain}"):
-        if fb:
-            return fb, "fallback", "low"
-    return None, "fallback", "low"
 
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
 
@@ -315,7 +270,6 @@ def process_sheet(
 
         url = row[2].strip() if len(row) > 2 and isinstance(row[2], str) else ""
         insta = email = form = ""
-        email_source = email_confidence = ""
         status = ""
 
         if not url:
@@ -329,18 +283,17 @@ def process_sheet(
             else:
                 soup = BeautifulSoup(content, "html.parser")
                 insta = find_instagram(soup, url) or ""
-                try:
-                    email, email_source, email_confidence = collect_emails(url)
-                except Exception:
-                    email = email_source = email_confidence = ""
+                email = crawl_site_for_email(
+                    url, timeout=timeout, verify=verify_ssl
+                ) or ""
                 form = find_contact_form(
                     soup, url, timeout=timeout, verify=verify_ssl
                 ) or ""
                 if not any([insta, email, form]):
                     status = "なし"
 
-        values = [[insta, email, email_source, email_confidence, form, status]]
-        update_range = f"{worksheet}!D{row_index}:I{row_index}"
+        values = [[insta, email, form, status]]
+        update_range = f"{worksheet}!D{row_index}:G{row_index}"
         (
             service.spreadsheets()
             .values()
