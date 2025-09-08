@@ -51,3 +51,9 @@ jobs:
             --spreadsheet-id "$SPREADSHEET_ID" \
             --worksheet "${{ inputs['worksheet-name'] }}" \
             --start-row "${{ inputs['start-row'] }}"
+
+  skip:
+    if: ${{ github.event_name == 'pull_request' }}
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Skipping contact finder on pull_request events"
