@@ -10,6 +10,7 @@ from bs4 import BeautifulSoup
 
 EMAIL_RE = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
 REQUEST_TIMEOUT = 5
+EMAIL_BLOCKLIST = ("catering", "career")
 
 DEFAULT_SHEET_PATH = (
     "https://docs.google.com/spreadsheets/d/1HU-GqN7sBcORIZrYEw4FkyfNmgDtXsO7CtDLVHEsldA/"
@@ -74,17 +75,22 @@ def crawl_site_for_email(base_url, max_depth=1, timeout=REQUEST_TIMEOUT, verify=
 
         soup = BeautifulSoup(content, "html.parser")
 
-        mailto = soup.find("a", href=lambda h: h and h.lower().startswith("mailto:"))
-        if mailto and mailto.get("href"):
-            href = mailto["href"]
-            return re.sub(r"^mailto:", "", href, flags=re.I).split("?")[0]
+        mailtos = soup.find_all("a", href=lambda h: h and h.lower().startswith("mailto:"))
+        for m in mailtos:
+            href = m["href"]
+            candidate = re.sub(r"^mailto:", "", href, flags=re.I).split("?")[0]
+            if any(b in candidate.lower() for b in EMAIL_BLOCKLIST):
+                continue
+            return candidate
 
         text = html.unescape(soup.get_text(" "))
         for pattern in ["[at]", "(at)", "＠"]:
             text = text.replace(pattern, "@")
-        match = EMAIL_RE.search(text)
-        if match:
-            return match.group(0)
+        for match in EMAIL_RE.finditer(text):
+            candidate = match.group(0)
+            if any(b in candidate.lower() for b in EMAIL_BLOCKLIST):
+                continue
+            return candidate
 
         if depth < max_depth:
             for a in soup.find_all("a", href=True):
