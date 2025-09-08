@@ -158,6 +158,9 @@ def select_best_email(candidates, site_url, allow_external=False, allow_support=
         if not email or '@' not in email:
             return None
 
+        if 'catering' in email.lower():
+            return ('blocked', email, 'blocked:catering_address')
+
         local, domain = email.split('@', 1)
         nlocal = _norm_local(local)
         path = urlparse(src).path.lower() if src else ''

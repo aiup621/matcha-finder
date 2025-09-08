@@ -460,3 +460,20 @@ def test_orders_allowed_on_trade_context():
     c = [{'email':'orders@cafe.com','source_url':'https://cafe.com/wholesale','anchor_text':'Wholesale orders'}]
     best, notes, kept, blocked = select_best_email(c, 'https://cafe.com')
     assert best == 'orders@cafe.com'
+
+
+def test_catering_address_blocked():
+    c = [{'email':'info@mycatering.com','source_url':'https://cafe.com'}]
+    best, notes, kept, blocked = select_best_email(c, 'https://cafe.com')
+    assert best is None
+    assert any('catering' in b[1] for b in blocked)
+
+
+def test_process_sheet_download_error(monkeypatch):
+    import requests
+
+    def bad_get(url):
+        raise requests.exceptions.ConnectionError('fail')
+
+    monkeypatch.setattr(uc.requests, 'get', bad_get)
+    uc.process_sheet('http://sheet', start_row=2, worksheet='Sheet')

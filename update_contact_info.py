@@ -138,8 +138,12 @@ def process_sheet(path, start_row=None, end_row=None, worksheet="抹茶営業リ
                 download_url = (
                     f"https://docs.google.com/spreadsheets/d/{file_id}/export?format=xlsx&gid={gid}"
                 )
-        resp = requests.get(download_url)
-        resp.raise_for_status()
+        try:
+            resp = requests.get(download_url)
+            resp.raise_for_status()
+        except requests.RequestException as exc:
+            logging.error("Failed to download spreadsheet %s: %s", download_url, exc)
+            return
         path = io.BytesIO(resp.content)
         save_path = "downloaded.xlsx"
 
