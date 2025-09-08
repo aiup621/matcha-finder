@@ -122,7 +122,7 @@ def select_best_email(candidates, site_url, allow_external=False, allow_support=
         'billing','invoice','accounting','finance',
         'legal','law','privacy','copyright','dmca','abuse','compliance','security',
         'admin','webmaster','postmaster','hostmaster',
-        'noreply','donotreply'
+        'noreply','donotreply','catering'
     )
     SUPPORT_LOCAL = ('support','helpdesk','help')
 
