@@ -50,6 +50,31 @@ def test_crawl_site_for_email_unescapes(monkeypatch):
     assert uc.crawl_site_for_email("http://example.com") == "info@example.com"
 
 
+def test_crawl_site_for_email_skips_blocklisted(monkeypatch):
+    pages = {
+        "http://example.com": (
+            "<a href='mailto:career@example.com'>c</a>"
+            "<a href='mailto:info@example.com'>i</a>"
+        )
+    }
+
+    def fake_fetch(url, timeout=5, verify=True):
+        return pages.get(url)
+
+    monkeypatch.setattr(uc, "_fetch_page", fake_fetch)
+    assert uc.crawl_site_for_email("http://example.com") == "info@example.com"
+
+
+def test_crawl_site_for_email_returns_none_if_only_blocklisted(monkeypatch):
+    pages = {"http://example.com": "<a href='mailto:catering@example.com'>c</a>"}
+
+    def fake_fetch(url, timeout=5, verify=True):
+        return pages.get(url)
+
+    monkeypatch.setattr(uc, "_fetch_page", fake_fetch)
+    assert uc.crawl_site_for_email("http://example.com") is None
+
+
 def test_find_contact_form(monkeypatch):
     html = '<a href="/contact">contact</a>'
     soup = BeautifulSoup(html, "html.parser")
