@@ -1,12 +1,12 @@
 import argparse
+import html
 import logging
 import re
+from collections import deque
 from urllib.parse import urljoin, urlparse
 
 import requests
 from bs4 import BeautifulSoup
-
-from collect_emails import collect_emails
 
 EMAIL_RE = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
 REQUEST_TIMEOUT = 5
@@ -56,10 +56,48 @@ def find_instagram(soup, base_url):
 
 
 def crawl_site_for_email(base_url, max_depth=1, timeout=REQUEST_TIMEOUT, verify=True):
-    """Crawl ``base_url`` looking for an email address."""
+    """Crawl ``base_url`` breadth-first looking for an email address."""
 
-    info = collect_emails(base_url, timeout=timeout, verify=verify)
-    return info["email"] if info else None
+    parsed = urlparse(base_url)
+    domain = parsed.netloc
+    queue = deque([(base_url, 0)])
+    visited = set()
+
+    while queue:
+        url, depth = queue.popleft()
+        if url in visited or depth > max_depth:
+            continue
+        visited.add(url)
+
+        content = _fetch_page(url, timeout=timeout, verify=verify)
+        if not content:
+            continue
+
+        soup = BeautifulSoup(content, "html.parser")
+
+        mailtos = soup.find_all("a", href=lambda h: h and h.lower().startswith("mailto:"))
+        for m in mailtos:
+            href = m["href"]
+            candidate = re.sub(r"^mailto:", "", href, flags=re.I).split("?")[0]
+            if any(b in candidate.lower() for b in EMAIL_BLOCKLIST):
+                continue
+            return candidate
+
+        text = html.unescape(soup.get_text(" "))
+        for pattern in ["[at]", "(at)", "＠"]:
+            text = text.replace(pattern, "@")
+        for match in EMAIL_RE.finditer(text):
+            candidate = match.group(0)
+            if any(b in candidate.lower() for b in EMAIL_BLOCKLIST):
+                continue
+            return candidate
+
+        if depth < max_depth:
+            for a in soup.find_all("a", href=True):
+                link = urljoin(url, a["href"])
+                if urlparse(link).netloc == domain and link not in visited:
+                    queue.append((link, depth + 1))
+    return None
 
 
 def find_contact_form(soup, base_url, timeout=REQUEST_TIMEOUT, verify=True):

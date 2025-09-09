@@ -6,7 +6,6 @@ import requests
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import update_contact_info as uc
 from update_contact_info_api import select_best_email
-import collect_emails as ce
 
 
 def test_find_instagram():
@@ -18,20 +17,10 @@ def test_find_instagram():
 def test_crawl_site_for_email_from_mailto(monkeypatch):
     pages = {"http://example.com": '<a href="mailto:info@example.com">mail</a>'}
 
-    class Resp:
-        def __init__(self, url):
-            self.url = url
-            self.status_code = 200
-            self.text = pages.get(url, "")
-            self.content = self.text.encode("utf-8")
+    def fake_fetch(url, timeout=5, verify=True):
+        return pages.get(url)
 
-        def raise_for_status(self):
-            pass
-
-    def fake_get(url, timeout=5, verify=True, headers=None):
-        return Resp(url)
-
-    monkeypatch.setattr(ce.requests, "get", fake_get)
+    monkeypatch.setattr(uc, "_fetch_page", fake_fetch)
     assert uc.crawl_site_for_email("http://example.com") == "info@example.com"
 
 
@@ -41,40 +30,23 @@ def test_crawl_site_for_email_normalizes(monkeypatch):
         "http://example.com/next": "Contact: sales[at]example.com",
     }
 
-    class Resp:
-        def __init__(self, url):
-            self.url = url
-            self.status_code = 200
-            self.text = pages.get(url, "")
-            self.content = self.text.encode("utf-8")
+    def fake_fetch(url, timeout=5, verify=True):
+        return pages.get(url)
 
-        def raise_for_status(self):
-            pass
-
-    def fake_get(url, timeout=5, verify=True, headers=None):
-        return Resp(url)
-
-    monkeypatch.setattr(ce.requests, "get", fake_get)
-    assert uc.crawl_site_for_email("http://example.com", max_depth=2) == "sales@example.com"
+    monkeypatch.setattr(uc, "_fetch_page", fake_fetch)
+    assert (
+        uc.crawl_site_for_email("http://example.com", max_depth=2)
+        == "sales@example.com"
+    )
 
 
 def test_crawl_site_for_email_unescapes(monkeypatch):
     pages = {"http://example.com": "Contact: info&#64;example.com"}
 
-    class Resp:
-        def __init__(self, url):
-            self.url = url
-            self.status_code = 200
-            self.text = pages.get(url, "")
-            self.content = self.text.encode("utf-8")
+    def fake_fetch(url, timeout=5, verify=True):
+        return pages.get(url)
 
-        def raise_for_status(self):
-            pass
-
-    def fake_get(url, timeout=5, verify=True, headers=None):
-        return Resp(url)
-
-    monkeypatch.setattr(ce.requests, "get", fake_get)
+    monkeypatch.setattr(uc, "_fetch_page", fake_fetch)
     assert uc.crawl_site_for_email("http://example.com") == "info@example.com"
 
 
@@ -86,40 +58,20 @@ def test_crawl_site_for_email_skips_blocklisted(monkeypatch):
         )
     }
 
-    class Resp:
-        def __init__(self, url):
-            self.url = url
-            self.status_code = 200
-            self.text = pages.get(url, "")
-            self.content = self.text.encode("utf-8")
+    def fake_fetch(url, timeout=5, verify=True):
+        return pages.get(url)
 
-        def raise_for_status(self):
-            pass
-
-    def fake_get(url, timeout=5, verify=True, headers=None):
-        return Resp(url)
-
-    monkeypatch.setattr(ce.requests, "get", fake_get)
+    monkeypatch.setattr(uc, "_fetch_page", fake_fetch)
     assert uc.crawl_site_for_email("http://example.com") == "info@example.com"
 
 
 def test_crawl_site_for_email_returns_none_if_only_blocklisted(monkeypatch):
     pages = {"http://example.com": "<a href='mailto:catering@example.com'>c</a>"}
 
-    class Resp:
-        def __init__(self, url):
-            self.url = url
-            self.status_code = 200
-            self.text = pages.get(url, "")
-            self.content = self.text.encode("utf-8")
+    def fake_fetch(url, timeout=5, verify=True):
+        return pages.get(url)
 
-        def raise_for_status(self):
-            pass
-
-    def fake_get(url, timeout=5, verify=True, headers=None):
-        return Resp(url)
-
-    monkeypatch.setattr(ce.requests, "get", fake_get)
+    monkeypatch.setattr(uc, "_fetch_page", fake_fetch)
     assert uc.crawl_site_for_email("http://example.com") is None
 
 
@@ -163,17 +115,50 @@ def test_process_sheet_row_range(tmp_path, monkeypatch):
     import openpyxl
 
     class DummyResponse:
-        def __init__(self, url):
-            self.url = url
-            self.status_code = 200
-            self.text = "<html></html>"
-            self.content = self.text.encode("utf-8")
+        text = "<html></html>"
+        status_code = 200
+
+        def raise_for_status(self):
+            pass
+        status_code = 200
+
+        def raise_for_status(self):
+            pass
+        status_code = 200
+
+        def raise_for_status(self):
+            pass
+        status_code = 200
+
+        def raise_for_status(self):
+            pass
+        status_code = 200
+
+        def raise_for_status(self):
+            pass
+        status_code = 200
+
+        def raise_for_status(self):
+            pass
+        status_code = 200
+
+        def raise_for_status(self):
+            pass
+        status_code = 200
+
+        def raise_for_status(self):
+            pass
+        status_code = 200
+
+        def raise_for_status(self):
+            pass
+        status_code = 200
 
         def raise_for_status(self):
             pass
 
     def dummy_get(url, timeout, verify=True, headers=None):
-        return DummyResponse(url)
+        return DummyResponse()
 
     wb = openpyxl.Workbook()
     ws = wb.active
@@ -197,17 +182,22 @@ def test_process_specific_worksheet(tmp_path, monkeypatch):
     import openpyxl
 
     class DummyResponse:
-        def __init__(self, url):
-            self.url = url
-            self.status_code = 200
-            self.text = "<html></html>"
-            self.content = self.text.encode("utf-8")
+        text = "<html></html>"
+        status_code = 200
+
+        def raise_for_status(self):
+            pass
+        status_code = 200
+
+        def raise_for_status(self):
+            pass
+        status_code = 200
 
         def raise_for_status(self):
             pass
 
     def dummy_get(url, timeout, verify=True, headers=None):
-        return DummyResponse(url)
+        return DummyResponse()
 
     wb = openpyxl.Workbook()
     ws1 = wb.active
@@ -232,17 +222,14 @@ def test_stop_on_blank_column_a(tmp_path, monkeypatch):
     import openpyxl
 
     class DummyResponse:
-        def __init__(self, url):
-            self.url = url
-            self.status_code = 200
-            self.text = "<html></html>"
-            self.content = self.text.encode("utf-8")
+        text = "<html></html>"
+        status_code = 200
 
         def raise_for_status(self):
             pass
 
     def dummy_get(url, timeout, verify=True, headers=None):
-        return DummyResponse(url)
+        return DummyResponse()
 
     wb = openpyxl.Workbook()
     ws = wb.active
@@ -269,17 +256,14 @@ def test_start_row_ignores_action_end(tmp_path, monkeypatch):
     import openpyxl
 
     class DummyResponse:
-        def __init__(self, url):
-            self.url = url
-            self.status_code = 200
-            self.text = "<html></html>"
-            self.content = self.text.encode("utf-8")
+        text = "<html></html>"
+        status_code = 200
 
         def raise_for_status(self):
             pass
 
     def dummy_get(url, timeout, verify=True, headers=None):
-        return DummyResponse(url)
+        return DummyResponse()
 
     wb = openpyxl.Workbook()
     ws = wb.active
@@ -350,17 +334,26 @@ def test_process_sheet_from_url(tmp_path, monkeypatch):
             pass
 
     class PageResponse:
-        def __init__(self, url):
-            self.url = url
-            self.status_code = 200
-            self.text = "<html></html>"
-            self.content = self.text.encode("utf-8")
+        text = "<html></html>"
+        status_code = 200
+
+        def raise_for_status(self):
+            pass
+        status_code = 200
+
+        def raise_for_status(self):
+            pass
+        status_code = 200
+
+        def raise_for_status(self):
+            pass
+        status_code = 200
 
         def raise_for_status(self):
             pass
 
     def fake_get(url, timeout=10, verify=True, headers=None):
-        return WorkbookResponse(content) if url == "http://sheet" else PageResponse(url)
+        return WorkbookResponse(content) if url == "http://sheet" else PageResponse()
 
     monkeypatch.setattr(uc.requests, "get", fake_get)
     monkeypatch.chdir(tmp_path)
@@ -392,11 +385,8 @@ def test_google_sheet_link_is_transformed(monkeypatch, tmp_path):
             pass
 
     class PageResponse:
-        def __init__(self, url):
-            self.url = url
-            self.status_code = 200
-            self.text = "<html></html>"
-            self.content = self.text.encode("utf-8")
+        text = "<html></html>"
+        status_code = 200
 
         def raise_for_status(self):
             pass
@@ -406,8 +396,8 @@ def test_google_sheet_link_is_transformed(monkeypatch, tmp_path):
             "https://docs.google.com/spreadsheets/d/FILEID/export?format=xlsx&gid=0"
         ):
             return WorkbookResponse(data)
-        if url.startswith("http://page"):
-            return PageResponse(url)
+        if url == "http://page":
+            return PageResponse()
         raise AssertionError(f"unexpected url {url}")
 
     monkeypatch.setattr(uc.requests, "get", fake_get)
@@ -436,16 +426,13 @@ def test_retry_on_ssl_error(tmp_path, monkeypatch):
             raise SSLError("bad cert")
 
         class DummyResponse:
-            def __init__(self, url):
-                self.url = url
-                self.status_code = 200
-                self.text = "<html></html>"
-                self.content = self.text.encode("utf-8")
+            text = "<html></html>"
+            status_code = 200
 
             def raise_for_status(self):
                 pass
 
-        return DummyResponse(url)
+        return DummyResponse()
 
     wb = openpyxl.Workbook()
     ws = wb.active
