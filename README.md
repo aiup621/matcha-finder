@@ -7,8 +7,6 @@
 - F列: 問い合わせフォームへのリンク
 - いずれも見つからない場合は G列に `なし` と記入
 
-メールアドレスはリンクやスクリプト、JSON-LD、`data-*` 属性、[at]/[dot] のような表記ゆれを含むテキストから抽出され、検出元 (`source`) と信頼度 (`confidence`) も記録します。
-
 GitHub Action は以下の Google スプレッドシートを対象とし、A 列が空欄の行で処理を終了します。
 https://docs.google.com/spreadsheets/d/1HU-GqN7sBcORIZrYEw4FkyfNmgDtXsO7CtDLVHEsldA/edit?gid=159511499#gid=159511499
 
