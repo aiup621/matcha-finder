@@ -121,6 +121,37 @@ def find_contact_form(soup, base_url, timeout=REQUEST_TIMEOUT, verify=True):
     return None
 
 
+def _normalize_email(value):
+    if value is None:
+        return None
+    if isinstance(value, str):
+        normalized = value.strip()
+    else:
+        normalized = str(value).strip()
+    if not normalized:
+        return None
+    return normalized.lower()
+
+
+def _collect_rows_to_delete(ws, first_data_row=2):
+    rows_to_delete = set()
+    seen_emails = {}
+
+    for row in range(first_data_row, ws.max_row + 1):
+        email_value = _normalize_email(ws.cell(row=row, column=5).value)
+        if email_value:
+            if email_value in seen_emails:
+                rows_to_delete.add(row)
+            else:
+                seen_emails[email_value] = row
+
+        status = ws.cell(row=row, column=7).value
+        if isinstance(status, str) and status.strip() == "エラー":
+            rows_to_delete.add(row)
+
+    return rows_to_delete
+
+
 def process_sheet(path, start_row=None, end_row=None, worksheet="抹茶営業リスト（カフェ）", debug=False):
     import io
     import urllib.parse
@@ -211,6 +242,13 @@ def process_sheet(path, start_row=None, end_row=None, worksheet="抹茶営業リ
             "Row %s result - Insta: %s, Email: %s, Form: %s",
             row, bool(insta), bool(email), bool(form)
         )
+
+    rows_to_delete = _collect_rows_to_delete(ws)
+    if rows_to_delete:
+        logging.info("Deleting %d rows due to duplicate emails or errors", len(rows_to_delete))
+        for row in sorted(rows_to_delete, reverse=True):
+            logging.debug("Deleting row %s", row)
+            ws.delete_rows(row)
     wb.save(save_path)
 
 
