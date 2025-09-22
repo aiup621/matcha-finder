@@ -46,6 +46,7 @@ from update_contact_info import (
     find_instagram,
 )
 from sheets_cleanup import (
+    cleanup_duplicates_written_only,
     delete_rows,
     find_rows_by_programmatic_duplicates,
     find_rows_highlighted_as_duplicates,
@@ -273,6 +274,7 @@ def process_sheet(
     rows = result.get("values", [])
 
     updated = 0
+    written_rows: list[int] = []
     for offset, row in enumerate(rows):
         row_index = start_row + offset
         if not row or not row[0]:
@@ -315,6 +317,7 @@ def process_sheet(
             )
             .execute()
         )
+        written_rows.append(row_index)
         logging.info(
             "Processed row %s: IG=%s, email=%s, form=%s, status=%s",
             row_index,
@@ -338,6 +341,34 @@ def process_sheet(
     dry_run = os.getenv("DRY_RUN", "false").lower() == "true"
 
     if cleanup_enabled:
+        if written_rows:
+            try:
+                deleted_written = cleanup_duplicates_written_only(
+                    service=service,
+                    spreadsheet_id=spreadsheet_id,
+                    title=worksheet,
+                    email_col_letter=email_col,
+                    header_rows=header_rows,
+                    written_rows=written_rows,
+                    dry_run=dry_run,
+                )
+                if dry_run:
+                    logging.info(
+                        "[DRY_RUN] Would delete %s duplicate rows among this run.",
+                        deleted_written,
+                    )
+                else:
+                    logging.info(
+                        "[CLEANUP] Deleted %s duplicate rows among this run.",
+                        deleted_written,
+                    )
+            except Exception:  # pragma: no cover - cleanup errors shouldn't abort main flow
+                logging.exception(
+                    "[CLEANUP] Failed to clean up written-only duplicate rows"
+                )
+        else:
+            logging.info("[CLEANUP] No rows were written; skip duplicate cleanup.")
+
         try:
             sheet_id = get_sheet_id(service, spreadsheet_id, worksheet)
             try:
