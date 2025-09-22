@@ -31,8 +31,7 @@ import argparse
 import json
 import logging
 import os
-import re
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Optional
 from urllib.parse import urlparse
 
 import requests
@@ -47,6 +46,7 @@ from update_contact_info import (
     find_instagram,
 )
 from sheets_cleanup import (
+    cleanup_duplicates_written_only,
     delete_rows,
     find_rows_by_programmatic_duplicates,
     find_rows_highlighted_as_duplicates,
@@ -54,185 +54,6 @@ from sheets_cleanup import (
 )
 
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
-
-
-def _normalize_email(value: str | None) -> str:
-    """Return a trimmed, lower-cased representation of ``value``."""
-
-    if not value:
-        return ""
-    text = str(value).strip()
-    text = re.sub(r"^\s*mailto:\s*", "", text, flags=re.IGNORECASE)
-    return text.strip().lower()
-
-
-def _is_error_cell(value: str | None) -> bool:
-    """Return ``True`` if ``value`` indicates an error cell."""
-
-    if not value:
-        return False
-    text = str(value).strip()
-    return text == "エラー" or text.lower() == "error"
-
-
-def _get_sheet_id_by_title(service, spreadsheet_id: str, title: str) -> int:
-    response = (
-        service.spreadsheets()
-        .get(
-            spreadsheetId=spreadsheet_id,
-            fields="sheets(properties(sheetId,title))",
-        )
-        .execute()
-    )
-    for sheet in response.get("sheets", []):
-        props = sheet.get("properties", {})
-        if props.get("title") == title:
-            sheet_id = props.get("sheetId")
-            if sheet_id is not None:
-                return sheet_id
-    raise ValueError(f"Sheet not found: {title}")
-
-
-def _values_batch_get(
-    service, spreadsheet_id: str, title: str, ranges: List[str]
-) -> Dict[str, list]:
-    result = (
-        service.spreadsheets()
-        .values()
-        .batchGet(
-            spreadsheetId=spreadsheet_id,
-            ranges=[f"'{title}'!{r}" for r in ranges],
-            majorDimension="ROWS",
-        )
-        .execute()
-    )
-    output: Dict[str, list] = {}
-    for value_range in result.get("valueRanges", []):
-        raw_range = value_range.get("range", "")
-        if "!" in raw_range:
-            raw_range = raw_range.split("!", 1)[-1]
-        raw_range = raw_range.replace(f"'{title}'!", "").replace(f"{title}!", "")
-        output[raw_range] = value_range.get("values", [])
-    return output
-
-
-def _group_contiguous_1based(rows_1b: List[int]) -> List[Tuple[int, int]]:
-    """Group 1-based row numbers into contiguous inclusive ranges."""
-
-    rows = sorted(set(rows_1b))
-    if not rows:
-        return []
-    groups: List[Tuple[int, int]] = []
-    start = prev = rows[0]
-    for row in rows[1:]:
-        if row == prev + 1:
-            prev = row
-            continue
-        groups.append((start, prev))
-        start = prev = row
-    groups.append((start, prev))
-    return groups
-
-
-def _batch_delete_rows(
-    service, spreadsheet_id: str, sheet_id: int, rows_1b: List[int]
-) -> int:
-    if not rows_1b:
-        return 0
-    groups = _group_contiguous_1based(rows_1b)
-    requests = []
-    for start, end in sorted(groups, key=lambda x: x[0], reverse=True):
-        requests.append(
-            {
-                "deleteDimension": {
-                    "range": {
-                        "sheetId": sheet_id,
-                        "dimension": "ROWS",
-                        "startIndex": start - 1,
-                        "endIndex": end,
-                    }
-                }
-            }
-        )
-    (
-        service.spreadsheets()
-        .batchUpdate(spreadsheetId=spreadsheet_id, body={"requests": requests})
-        .execute()
-    )
-    return sum(end - start + 1 for start, end in groups)
-
-
-def cleanup_written_only_and_errors(
-    service,
-    spreadsheet_id: str,
-    title: str,
-    written_rows: List[int],
-    *,
-    dry_run: bool = False,
-) -> int:
-    """
-    Delete rows among ``written_rows`` when they are duplicates or marked as errors.
-
-    - Duplicate detection is based on normalised e-mail addresses in column E with
-      the first occurrence kept.
-    - Rows where column G contains "エラー" (or "error") are removed.
-    """
-
-    if not written_rows:
-        logging.info("[CLEANUP] No written rows; skip.")
-        return 0
-
-    data = _values_batch_get(service, spreadsheet_id, title, ["E2:E", "G2:G"])
-    email_values = data.get("E2:E", [])
-    status_values = data.get("G2:G", [])
-
-    email_to_rows: Dict[str, List[int]] = {}
-    max_len = max(len(email_values), len(status_values))
-    for idx in range(max_len):
-        raw_email = (
-            email_values[idx][0]
-            if idx < len(email_values) and email_values[idx]
-            else ""
-        )
-        normalised = _normalize_email(raw_email)
-        row_number = idx + 2
-        if normalised:
-            email_to_rows.setdefault(normalised, []).append(row_number)
-
-    duplicate_candidates: Set[int] = set()
-    for rows in email_to_rows.values():
-        if len(rows) >= 2:
-            duplicate_candidates.update(rows[1:])
-
-    written_set = {int(row) for row in written_rows}
-    duplicates_to_delete = {row for row in duplicate_candidates if row in written_set}
-
-    error_rows_to_delete: Set[int] = set()
-    for idx in range(len(status_values)):
-        cell_value = status_values[idx][0] if status_values[idx] else ""
-        row_number = idx + 2
-        if row_number in written_set and _is_error_cell(cell_value):
-            error_rows_to_delete.add(row_number)
-
-    targets = sorted(duplicates_to_delete | error_rows_to_delete, reverse=True)
-    if not targets:
-        logging.info(
-            "[CLEANUP] No rows to delete (written-only duplicates + G='エラー')."
-        )
-        return 0
-
-    if dry_run:
-        logging.info(
-            "[DRY_RUN] Would delete %s rows (written-only): %s",
-            len(targets),
-            targets,
-        )
-        return len(targets)
-
-    sheet_id = _get_sheet_id_by_title(service, spreadsheet_id, title)
-    deleted = _batch_delete_rows(service, spreadsheet_id, sheet_id, targets)
-    logging.info("[CLEANUP] Deleted %s rows (written-only): %s", deleted, targets)
-    return deleted
 
 
 def _build_sheet_service(credentials_file: str) -> "Resource":
@@ -485,7 +306,6 @@ def process_sheet(
 
         values = [[insta, email, form, status]]
         update_range = f"{worksheet}!D{row_index}:G{row_index}"
-        did_write = False
         (
             service.spreadsheets()
             .values()
@@ -497,9 +317,7 @@ def process_sheet(
             )
             .execute()
         )
-        did_write = True
-        if did_write:
-            written_rows.append(row_index)
+        written_rows.append(row_index)
         logging.info(
             "Processed row %s: IG=%s, email=%s, form=%s, status=%s",
             row_index,
@@ -525,21 +343,31 @@ def process_sheet(
     if cleanup_enabled:
         if written_rows:
             try:
-                cleanup_written_only_and_errors(
+                deleted_written = cleanup_duplicates_written_only(
                     service=service,
                     spreadsheet_id=spreadsheet_id,
                     title=worksheet,
+                    email_col_letter=email_col,
+                    header_rows=header_rows,
                     written_rows=written_rows,
                     dry_run=dry_run,
                 )
+                if dry_run:
+                    logging.info(
+                        "[DRY_RUN] Would delete %s duplicate rows among this run.",
+                        deleted_written,
+                    )
+                else:
+                    logging.info(
+                        "[CLEANUP] Deleted %s duplicate rows among this run.",
+                        deleted_written,
+                    )
             except Exception:  # pragma: no cover - cleanup errors shouldn't abort main flow
                 logging.exception(
-                    "[CLEANUP] Failed to clean up written-only duplicates/errors"
+                    "[CLEANUP] Failed to clean up written-only duplicate rows"
                 )
         else:
-            logging.info(
-                "[CLEANUP] No rows were written; skip duplicate/error cleanup."
-            )
+            logging.info("[CLEANUP] No rows were written; skip duplicate cleanup.")
 
         if os.getenv("GLOBAL_DEDUPE", "0") == "1":
             try:
