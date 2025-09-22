@@ -44,6 +44,12 @@ from update_contact_info import (
     crawl_site_for_email,
     find_instagram,
 )
+from sheets_cleanup import (
+    delete_rows,
+    find_rows_by_programmatic_duplicates,
+    find_rows_highlighted_as_duplicates,
+    get_sheet_id,
+)
 
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
 
@@ -321,6 +327,46 @@ def process_sheet(
             break
 
     logging.info("Updated %s rows", updated)
+
+    cleanup_enabled = os.getenv("CLEANUP_DUPLICATE_EMAIL_ROWS", "true").lower() == "true"
+    email_col = os.getenv("EMAIL_COL_LETTER", "E")
+    try:
+        header_rows = int(os.getenv("HEADER_ROWS", "1"))
+    except ValueError:
+        header_rows = 1
+    dry_run = os.getenv("DRY_RUN", "false").lower() == "true"
+
+    if cleanup_enabled:
+        try:
+            sheet_id = get_sheet_id(service, spreadsheet_id, worksheet)
+            rows = find_rows_highlighted_as_duplicates(
+                service,
+                spreadsheet_id,
+                worksheet,
+                email_col,
+                header_rows,
+            )
+            if not rows:
+                rows = find_rows_by_programmatic_duplicates(
+                    service,
+                    spreadsheet_id,
+                    worksheet,
+                    email_col,
+                    header_rows,
+                )
+
+            if rows:
+                rows = sorted(set(rows), reverse=True)
+                if dry_run:
+                    logging.info("[DRY_RUN] Would delete %s rows: %s", len(rows), rows)
+                else:
+                    delete_rows(service, spreadsheet_id, sheet_id, rows)
+                    logging.info("Deleted %s duplicate email rows.", len(rows))
+            else:
+                logging.info("No duplicate email rows to delete.")
+        except Exception:  # pragma: no cover - cleanup errors shouldn't abort main flow
+            logging.exception("Failed to clean up duplicate email rows")
+
     return updated
 
 
