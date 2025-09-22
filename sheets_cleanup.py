@@ -38,15 +38,10 @@ def _is_colored(cell: dict | None) -> bool:
     color = _get_rgb_color(cell)
     if not color:
         return False
-    red = float(color.get("red", 0.0) or 0.0)
-    green = float(color.get("green", 0.0) or 0.0)
-    blue = float(color.get("blue", 0.0) or 0.0)
-    total = red + green + blue
-    if total < 2.9:
-        return True
-    if any(abs(channel - 1.0) > 1e-6 for channel in (red, green, blue)):
-        return True
-    return False
+    red = float(color.get("red", 1.0) or 1.0)
+    green = float(color.get("green", 1.0) or 1.0)
+    blue = float(color.get("blue", 1.0) or 1.0)
+    return (red + green + blue) < 2.9
 
 
 def find_rows_highlighted_as_duplicates(
@@ -66,9 +61,13 @@ def find_rows_highlighted_as_duplicates(
             ranges=[range_a1],
             includeGridData=True,
             fields=(
-                "sheets(data.rowData.values(effectiveFormat.backgroundColor,"\
-                "effectiveFormat.backgroundColorStyle,effectiveValue.stringValue,"\
-                "userEnteredValue)))"
+                "sheets("
+                "properties.sheetId,properties.title,"
+                "data.rowData.values.effectiveFormat.backgroundColor,"
+                "data.rowData.values.effectiveFormat.backgroundColorStyle,"
+                "data.rowData.values.effectiveValue.stringValue,"
+                "data.rowData.values.userEnteredValue"
+                ")"
             ),
         )
         .execute()
