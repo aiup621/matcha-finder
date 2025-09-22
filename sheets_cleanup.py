@@ -1,6 +1,68 @@
 from __future__ import annotations
 
-from typing import Iterable, List, Sequence, Tuple
+import logging
+import re
+from typing import Dict, Iterable, List, Sequence, Tuple
+
+
+def normalize_email(value: str | None) -> str:
+    """Return a normalised representation of ``value`` suitable for deduping."""
+
+    if not value:
+        return ""
+
+    text = str(value).strip()
+    text = re.sub(r"^\s*mailto:\s*", "", text, flags=re.IGNORECASE)
+
+    try:  # Normalise full-width variants to ASCII where possible.
+        import unicodedata
+
+        text = unicodedata.normalize("NFKC", text)
+    except Exception:  # pragma: no cover - defensive, should not happen.
+        pass
+
+    text = re.sub(r"\s+", "", text)
+    text = text.rstrip(".")
+    return text.lower()
+
+
+def collect_emails_map(
+    service,
+    spreadsheet_id: str,
+    title: str,
+    email_col_letter: str,
+    header_rows: int,
+) -> Dict[str, List[int]]:
+    """Return a mapping of normalised emails to 1-based row numbers."""
+
+    range_a1 = f"'{title}'!{email_col_letter}{header_rows + 1}:{email_col_letter}"
+    response = (
+        service.spreadsheets()
+        .values()
+        .get(
+            spreadsheetId=spreadsheet_id,
+            range=range_a1,
+            valueRenderOption="FORMATTED_VALUE",
+            majorDimension="COLUMNS",
+        )
+        .execute()
+    )
+
+    values = response.get("values", [])
+    if not values:
+        return {}
+
+    column = values[0]
+    emails_map: Dict[str, List[int]] = {}
+
+    for offset, raw_value in enumerate(column):
+        row_number = header_rows + 1 + offset
+        normalised = normalize_email(raw_value)
+        if normalised in {"", "-", "n/a", "na", "なし", "無し", "none"}:
+            continue
+        emails_map.setdefault(normalised, []).append(row_number)
+
+    return emails_map
 
 
 def get_sheet_id(service, spreadsheet_id: str, title: str) -> int:
@@ -176,4 +238,63 @@ def delete_rows(
         .batchUpdate(spreadsheetId=spreadsheet_id, body={"requests": requests})
         .execute()
     )
+
+
+def cleanup_duplicates_written_only(
+    service,
+    spreadsheet_id: str,
+    title: str,
+    email_col_letter: str,
+    header_rows: int,
+    written_rows: Sequence[int],
+    *,
+    dry_run: bool = False,
+) -> int:
+    """Delete duplicates among ``written_rows`` based on normalised email values."""
+
+    if not written_rows:
+        return 0
+
+    emails_map = collect_emails_map(
+        service,
+        spreadsheet_id,
+        title,
+        email_col_letter,
+        header_rows,
+    )
+
+    written_set = {int(row) for row in written_rows}
+    to_delete: List[int] = []
+
+    for rows in emails_map.values():
+        if len(rows) <= 1:
+            continue
+        sorted_rows = sorted(rows)
+        for candidate in sorted_rows[1:]:
+            if candidate in written_set:
+                to_delete.append(candidate)
+
+    if not to_delete:
+        logging.info("[CLEANUP] No written-only duplicates to delete.")
+        return 0
+
+    to_delete_desc = sorted(set(to_delete), reverse=True)
+
+    if dry_run:
+        logging.info(
+            "[DRY_RUN] Would delete %s rows (written-only): %s",
+            len(to_delete_desc),
+            to_delete_desc,
+        )
+        return len(to_delete_desc)
+
+    sheet_id = get_sheet_id(service, spreadsheet_id, title)
+    zero_based_rows = [row - 1 for row in to_delete_desc]
+    delete_rows(service, spreadsheet_id, sheet_id, zero_based_rows)
+    logging.info(
+        "[CLEANUP] Deleted %s rows (written-only): %s",
+        len(to_delete_desc),
+        to_delete_desc,
+    )
+    return len(to_delete_desc)
 
