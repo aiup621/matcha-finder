@@ -369,45 +369,69 @@ def process_sheet(
         else:
             logging.info("[CLEANUP] No rows were written; skip duplicate cleanup.")
 
-        try:
-            sheet_id = get_sheet_id(service, spreadsheet_id, worksheet)
+        if os.getenv("GLOBAL_DEDUPE", "0") == "1":
             try:
-                rows = find_rows_highlighted_as_duplicates(
-                    service,
-                    spreadsheet_id,
-                    worksheet,
-                    email_col,
-                    header_rows,
+                run_global_dedupe(
+                    service=service,
+                    spreadsheet_id=spreadsheet_id,
+                    worksheet_title=worksheet,
+                    email_col_letter=email_col,
+                    header_rows=header_rows,
+                    dry_run=dry_run,
                 )
-            except HttpError as exc:
-                logging.warning(
-                    "[CLEANUP] Color-based detection failed, falling back. reason=%s",
-                    exc,
-                )
-                rows = []
-
-            if not rows:
-                rows = find_rows_by_programmatic_duplicates(
-                    service,
-                    spreadsheet_id,
-                    worksheet,
-                    email_col,
-                    header_rows,
-                )
-
-            if rows:
-                rows = sorted(set(rows), reverse=True)
-                if dry_run:
-                    logging.info("[DRY_RUN] Would delete %s rows: %s", len(rows), rows)
-                else:
-                    delete_rows(service, spreadsheet_id, sheet_id, rows)
-                    logging.info("Deleted %s duplicate email rows.", len(rows))
-            else:
-                logging.info("No duplicate email rows to delete.")
-        except Exception:  # pragma: no cover - cleanup errors shouldn't abort main flow
-            logging.exception("Failed to clean up duplicate email rows")
+            except Exception:  # pragma: no cover - cleanup errors shouldn't abort main flow
+                logging.exception("[GLOBAL] Failed to clean up duplicate email rows")
+        else:
+            logging.info("[GLOBAL] Skipped global dedupe (written-only mode).")
 
     return updated
+
+
+def run_global_dedupe(
+    *,
+    service,
+    spreadsheet_id: str,
+    worksheet_title: str,
+    email_col_letter: str,
+    header_rows: int,
+    dry_run: bool,
+) -> int:
+    sheet_id = get_sheet_id(service, spreadsheet_id, worksheet_title)
+    try:
+        rows = find_rows_highlighted_as_duplicates(
+            service,
+            spreadsheet_id,
+            worksheet_title,
+            email_col_letter,
+            header_rows,
+        )
+    except HttpError as exc:
+        logging.warning(
+            "[GLOBAL] Color-based detection failed, falling back. reason=%s",
+            exc,
+        )
+        rows = []
+
+    if not rows:
+        rows = find_rows_by_programmatic_duplicates(
+            service,
+            spreadsheet_id,
+            worksheet_title,
+            email_col_letter,
+            header_rows,
+        )
+
+    if not rows:
+        logging.info("[GLOBAL] No duplicate email rows to delete.")
+        return 0
+
+    rows = sorted(set(rows), reverse=True)
+    if dry_run:
+        logging.info("[DRY_RUN] Would delete %s rows: %s", len(rows), rows)
+    else:
+        delete_rows(service, spreadsheet_id, sheet_id, rows)
+        logging.info("[GLOBAL] Deleted %s duplicate email rows.", len(rows))
+    return len(rows)
 
 
 def main() -> None:  # pragma: no cover - CLI entry point
