@@ -73,43 +73,6 @@ def _build_sheet_service(credentials_file: str) -> "Resource":
     return build("sheets", "v4", credentials=creds)
 
 
-def _quote_sheet_title(title: str) -> str:
-    """Return ``title`` quoted for use in A1 ranges."""
-
-    text = (title or "").strip()
-    text = text.replace("'", "''")
-    return f"'{text}'"
-
-
-def _resolve_sheet_title(service, spreadsheet_id: str, wanted: str) -> str:
-    """Return the exact sheet title matching ``wanted`` or raise an error."""
-
-    metadata = (
-        service.spreadsheets()
-        .get(spreadsheetId=spreadsheet_id, fields="sheets.properties.title")
-        .execute()
-    )
-    titles: list[str] = []
-    for sheet in metadata.get("sheets", []):
-        props = sheet.get("properties", {}) if isinstance(sheet, dict) else {}
-        title = props.get("title")
-        if isinstance(title, str):
-            titles.append(title)
-
-    wanted = wanted or ""
-    if wanted in titles:
-        return wanted
-
-    wanted_trim = wanted.strip()
-    for title in titles:
-        if title.strip() == wanted_trim:
-            return title
-
-    raise RuntimeError(
-        f"Worksheet not found: {wanted!r}. Existing sheets: {titles}"
-    )
-
-
 def _fetch_page(url: str, timeout: float, verify: bool) -> Optional[str]:
     """Return the page content for ``url`` with retry handling."""
 
@@ -289,7 +252,7 @@ def select_best_email(candidates, site_url, allow_external=False, allow_support=
 
 def process_sheet(
     spreadsheet_id: str,
-    worksheet_title: str,
+    worksheet: str,
     start_row: int,
     max_rows: Optional[int],
     timeout: float,
@@ -300,13 +263,8 @@ def process_sheet(
 
     service = _build_sheet_service(credentials_file)
 
-    start_row = max(2, int(start_row))
-    sheet_title = _resolve_sheet_title(service, spreadsheet_id, worksheet_title)
-    quoted_title = _quote_sheet_title(sheet_title)
-
     end_row = "" if max_rows is None else str(start_row + max_rows - 1)
-    read_range = f"{quoted_title}!A{start_row}:G{end_row}"
-    logging.info("[DEBUG] reading range -> %s", read_range)
+    read_range = f"{worksheet}!A{start_row}:G{end_row}"
     result = (
         service.spreadsheets()
         .values()
@@ -347,7 +305,7 @@ def process_sheet(
                     status = "なし"
 
         values = [[insta, email, form, status]]
-        update_range = f"{quoted_title}!D{row_index}:G{row_index}"
+        update_range = f"{worksheet}!D{row_index}:G{row_index}"
         (
             service.spreadsheets()
             .values()
@@ -388,7 +346,7 @@ def process_sheet(
                 deleted_written = cleanup_duplicates_written_only(
                     service=service,
                     spreadsheet_id=spreadsheet_id,
-                    title=sheet_title,
+                    title=worksheet,
                     email_col_letter=email_col,
                     header_rows=header_rows,
                     written_rows=written_rows,
@@ -416,7 +374,7 @@ def process_sheet(
                 run_global_dedupe(
                     service=service,
                     spreadsheet_id=spreadsheet_id,
-                    worksheet_title=sheet_title,
+                    worksheet_title=worksheet,
                     email_col_letter=email_col,
                     header_rows=header_rows,
                     dry_run=dry_run,
@@ -500,7 +458,7 @@ def main() -> None:  # pragma: no cover - CLI entry point
 
     process_sheet(
         spreadsheet_id=args.spreadsheet_id,
-        worksheet_title=args.worksheet,
+        worksheet=args.worksheet,
         start_row=args.start_row,
         max_rows=args.max_rows,
         timeout=args.timeout,
