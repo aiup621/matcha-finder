@@ -37,6 +37,7 @@ from urllib.parse import urlparse
 import requests
 from bs4 import BeautifulSoup
 from googleapiclient.discovery import build
+from googleapiclient.errors import HttpError
 from google.oauth2 import service_account
 
 from update_contact_info import (
@@ -339,13 +340,21 @@ def process_sheet(
     if cleanup_enabled:
         try:
             sheet_id = get_sheet_id(service, spreadsheet_id, worksheet)
-            rows = find_rows_highlighted_as_duplicates(
-                service,
-                spreadsheet_id,
-                worksheet,
-                email_col,
-                header_rows,
-            )
+            try:
+                rows = find_rows_highlighted_as_duplicates(
+                    service,
+                    spreadsheet_id,
+                    worksheet,
+                    email_col,
+                    header_rows,
+                )
+            except HttpError as exc:
+                logging.warning(
+                    "[CLEANUP] Color-based detection failed, falling back. reason=%s",
+                    exc,
+                )
+                rows = []
+
             if not rows:
                 rows = find_rows_by_programmatic_duplicates(
                     service,
