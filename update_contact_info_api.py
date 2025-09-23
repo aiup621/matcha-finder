@@ -28,10 +28,11 @@ Example usage::
 from __future__ import annotations
 
 import argparse
+import bisect
 import json
 import logging
 import os
-from typing import Optional
+from typing import List, Optional, Sequence
 from urllib.parse import urlparse
 
 import requests
@@ -98,6 +99,63 @@ def _fetch_page(url: str, timeout: float, verify: bool) -> Optional[str]:
         except requests.RequestException:
             continue
     return None
+
+
+def _delete_rows_by_numbers(
+    *,
+    service,
+    spreadsheet_id: str,
+    worksheet_title: str,
+    row_numbers: Sequence[int],
+    dry_run: bool,
+    description: str,
+) -> List[int]:
+    """Delete ``row_numbers`` on ``worksheet_title`` and return the deleted rows."""
+
+    unique_desc = sorted({int(row) for row in row_numbers}, reverse=True)
+    if not unique_desc:
+        return []
+
+    if dry_run:
+        logging.info(
+            "[DRY_RUN] Would delete %s %s: %s",
+            len(unique_desc),
+            description,
+            unique_desc,
+        )
+        return unique_desc
+
+    sheet_id = get_sheet_id(service, spreadsheet_id, worksheet_title)
+    zero_based = [row - 1 for row in unique_desc]
+    delete_rows(service, spreadsheet_id, sheet_id, zero_based)
+    logging.info(
+        "[CLEANUP] Deleted %s %s: %s",
+        len(unique_desc),
+        description,
+        unique_desc,
+    )
+    return unique_desc
+
+
+def _adjust_written_rows_after_deletion(
+    written_rows: Sequence[int], deleted_rows: Sequence[int]
+) -> List[int]:
+    """Return ``written_rows`` adjusted after removing ``deleted_rows``."""
+
+    if not deleted_rows:
+        return list(written_rows)
+
+    deleted_sorted = sorted({int(row) for row in deleted_rows})
+    deleted_set = set(deleted_sorted)
+    adjusted: List[int] = []
+
+    for row in written_rows:
+        if row in deleted_set:
+            continue
+        shift = bisect.bisect_left(deleted_sorted, row)
+        adjusted.append(row - shift)
+
+    return adjusted
 
 
 def select_best_email(candidates, site_url, allow_external=False, allow_support=False):
@@ -275,6 +333,7 @@ def process_sheet(
 
     updated = 0
     written_rows: list[int] = []
+    error_rows: list[int] = []
     for offset, row in enumerate(rows):
         row_index = start_row + offset
         if not row or not row[0]:
@@ -318,6 +377,8 @@ def process_sheet(
             .execute()
         )
         written_rows.append(row_index)
+        if status == "エラー":
+            error_rows.append(row_index)
         logging.info(
             "Processed row %s: IG=%s, email=%s, form=%s, status=%s",
             row_index,
@@ -332,13 +393,38 @@ def process_sheet(
 
     logging.info("Updated %s rows", updated)
 
+    dry_run = os.getenv("DRY_RUN", "false").lower() == "true"
+    delete_errors = os.getenv("DELETE_ERROR_ROWS", "true").lower() == "true"
+
+    if delete_errors:
+        if error_rows:
+            try:
+                deleted_error_rows = _delete_rows_by_numbers(
+                    service=service,
+                    spreadsheet_id=spreadsheet_id,
+                    worksheet_title=worksheet,
+                    row_numbers=error_rows,
+                    dry_run=dry_run,
+                    description="rows marked エラー",
+                )
+            except Exception:  # pragma: no cover - cleanup errors shouldn't abort main flow
+                logging.exception("[CLEANUP] Failed to delete rows marked エラー")
+            else:
+                if deleted_error_rows and not dry_run:
+                    written_rows = _adjust_written_rows_after_deletion(
+                        written_rows, deleted_error_rows
+                    )
+        else:
+            logging.info("[CLEANUP] No written rows marked エラー to delete.")
+    else:
+        logging.info("[CLEANUP] Skipped deletion of rows marked エラー (disabled).")
+
     cleanup_enabled = os.getenv("CLEANUP_DUPLICATE_EMAIL_ROWS", "true").lower() == "true"
     email_col = os.getenv("EMAIL_COL_LETTER", "E")
     try:
         header_rows = int(os.getenv("HEADER_ROWS", "1"))
     except ValueError:
         header_rows = 1
-    dry_run = os.getenv("DRY_RUN", "false").lower() == "true"
 
     if cleanup_enabled:
         if written_rows:

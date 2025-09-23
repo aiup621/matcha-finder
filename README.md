@@ -43,6 +43,8 @@ python update_contact_info_api.py \
 
 `update_contact_info_api.py` は書き込み完了後に E 列（メールアドレス）を
 確認し、条件付き書式で色付けされた重複メールの行を自動で削除します。
+同時に、今回の実行でステータス列（G 列）に「エラー」と記録された行も
+削除対象に含めます。
 背景色は Sheets API の `effectiveFormat` を参照して判定し、完全な白
 （RGB 合計が 3.0 に近い値）以外であれば重複とみなします。環境によって
 色が取得できない場合は、E 列の値をプログラム側で正規化・重複判定して
@@ -53,6 +55,7 @@ python update_contact_info_api.py \
 - `CLEANUP_DUPLICATE_EMAIL_ROWS` (`true`): 後処理の有効／無効
 - `EMAIL_COL_LETTER` (`E`): メールアドレスが入っている列
 - `HEADER_ROWS` (`1`): ヘッダー行数。削除対象から除外されます。
+- `DELETE_ERROR_ROWS` (`true`): 実行中に G 列へ「エラー」と書き込んだ行を削除
 - `DRY_RUN` (`false`): `true` を指定すると削除せず候補行だけをログ出力
 
 重複行が見つかると Sheets API の `DeleteDimension` を使って連続する
