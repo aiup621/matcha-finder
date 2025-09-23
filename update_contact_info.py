@@ -11,6 +11,17 @@ from bs4 import BeautifulSoup
 EMAIL_RE = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
 REQUEST_TIMEOUT = 5
 EMAIL_BLOCKLIST = ("catering", "career")
+EMAIL_LOCALPART_BLOCKLIST = ("order", "orders")
+
+
+def _is_blocked_email(candidate: str) -> bool:
+    lower = candidate.lower()
+    if any(b in lower for b in EMAIL_BLOCKLIST):
+        return True
+    local_part = lower.partition("@")[0]
+    if any(block in local_part for block in EMAIL_LOCALPART_BLOCKLIST):
+        return True
+    return False
 
 DEFAULT_SHEET_PATH = (
     "https://docs.google.com/spreadsheets/d/1HU-GqN7sBcORIZrYEw4FkyfNmgDtXsO7CtDLVHEsldA/"
@@ -79,7 +90,7 @@ def crawl_site_for_email(base_url, max_depth=1, timeout=REQUEST_TIMEOUT, verify=
         for m in mailtos:
             href = m["href"]
             candidate = re.sub(r"^mailto:", "", href, flags=re.I).split("?")[0]
-            if any(b in candidate.lower() for b in EMAIL_BLOCKLIST):
+            if _is_blocked_email(candidate):
                 continue
             return candidate
 
@@ -88,7 +99,7 @@ def crawl_site_for_email(base_url, max_depth=1, timeout=REQUEST_TIMEOUT, verify=
             text = text.replace(pattern, "@")
         for match in EMAIL_RE.finditer(text):
             candidate = match.group(0)
-            if any(b in candidate.lower() for b in EMAIL_BLOCKLIST):
+            if _is_blocked_email(candidate):
                 continue
             return candidate
 
