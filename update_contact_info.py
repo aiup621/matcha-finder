@@ -132,6 +132,61 @@ def find_contact_form(soup, base_url, timeout=REQUEST_TIMEOUT, verify=True):
     return None
 
 
+def _normalize_email(value, hyperlink_target=None):
+    candidates = []
+
+    if hyperlink_target:
+        candidates.append(hyperlink_target)
+
+    if value is not None:
+        if isinstance(value, str):
+            candidates.append(value)
+        else:
+            candidates.append(str(value))
+
+    for candidate in candidates:
+        if not candidate:
+            continue
+        text = str(candidate).strip()
+        if not text:
+            continue
+
+        lowered = text.lower()
+
+        if lowered.startswith("mailto:"):
+            lowered = lowered[len("mailto:") :]
+
+        match = EMAIL_RE.search(lowered)
+        if match:
+            return match.group(0)
+
+        if "@" in lowered:
+            return lowered
+
+    return None
+
+
+def _collect_rows_to_delete(ws, first_data_row=2):
+    rows_to_delete = set()
+    seen_emails = {}
+
+    for row in range(first_data_row, ws.max_row + 1):
+        cell = ws.cell(row=row, column=5)
+        hyperlink_target = getattr(cell.hyperlink, "target", None)
+        email_value = _normalize_email(cell.value, hyperlink_target)
+        if email_value:
+            if email_value in seen_emails:
+                rows_to_delete.add(row)
+            else:
+                seen_emails[email_value] = row
+
+        status = ws.cell(row=row, column=7).value
+        if isinstance(status, str) and status.strip() == "エラー":
+            rows_to_delete.add(row)
+
+    return rows_to_delete
+
+
 def process_sheet(path, start_row=None, end_row=None, worksheet="抹茶営業リスト（カフェ）", debug=False):
     import io
     import urllib.parse
@@ -222,6 +277,13 @@ def process_sheet(path, start_row=None, end_row=None, worksheet="抹茶営業リ
             "Row %s result - Insta: %s, Email: %s, Form: %s",
             row, bool(insta), bool(email), bool(form)
         )
+
+    rows_to_delete = _collect_rows_to_delete(ws)
+    if rows_to_delete:
+        logging.info("Deleting %d rows due to duplicate emails or errors", len(rows_to_delete))
+        for row in sorted(rows_to_delete, reverse=True):
+            logging.debug("Deleting row %s", row)
+            ws.delete_rows(row)
     wb.save(save_path)
 
 
