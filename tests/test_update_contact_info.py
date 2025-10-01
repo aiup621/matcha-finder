@@ -486,7 +486,110 @@ def test_request_failure_marks_error(tmp_path, monkeypatch):
 
     wb2 = openpyxl.load_workbook(file)
     ws2 = wb2["Sheet"]
-    assert ws2.cell(row=2, column=7).value == "エラー"
+    assert ws2.max_row == 1
+
+
+def test_duplicate_emails_are_removed(tmp_path, monkeypatch):
+    import openpyxl
+
+    class DummyResponse:
+        def __init__(self, text):
+            self.text = text
+            self.status_code = 200
+
+        def raise_for_status(self):
+            pass
+
+    pages = {
+        "http://a": "<a href='mailto:info@example.com'>mail</a>",
+        "http://b": "<a href='mailto:INFO@example.com'>mail</a>",
+    }
+
+    def dummy_get(url, timeout, verify=True, headers=None):
+        return DummyResponse(pages.get(url, "<html></html>"))
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Sheet"
+    ws.cell(row=2, column=1, value="ok")
+    ws.cell(row=2, column=3, value="http://a")
+    ws.cell(row=3, column=1, value="ok")
+    ws.cell(row=3, column=3, value="http://b")
+    file = tmp_path / "sample.xlsx"
+    wb.save(file)
+
+    monkeypatch.setattr(uc.requests, "get", dummy_get)
+    uc.process_sheet(str(file), start_row=2, end_row=3, worksheet="Sheet")
+
+    wb2 = openpyxl.load_workbook(file)
+    ws2 = wb2["Sheet"]
+    emails = [
+        ws2.cell(row=row, column=5).value
+        for row in range(2, ws2.max_row + 1)
+        if ws2.cell(row=row, column=5).value
+    ]
+    assert emails == ["info@example.com"]
+
+
+def test_duplicate_hyperlink_emails_are_removed(tmp_path, monkeypatch):
+    import openpyxl
+
+    class DummyResponse:
+        def __init__(self, text):
+            self.text = text
+            self.status_code = 200
+
+        def raise_for_status(self):
+            pass
+
+    def dummy_get(url, timeout, verify=True, headers=None):
+        return DummyResponse("<html></html>")
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Sheet"
+    ws.cell(row=2, column=1, value="ok")
+    ws.cell(row=2, column=3, value="http://a")
+    ws.cell(row=2, column=5, value="info@example.com")
+    ws.cell(
+        row=3,
+        column=1,
+        value="ok",
+    )
+    ws.cell(row=3, column=3, value="http://b")
+    ws.cell(
+        row=3,
+        column=5,
+        value='=HYPERLINK("mailto:INFO@example.com","Contact")',
+    )
+    file = tmp_path / "sample.xlsx"
+    wb.save(file)
+
+    monkeypatch.setattr(uc.requests, "get", dummy_get)
+    uc.process_sheet(str(file), start_row=2, end_row=3, worksheet="Sheet")
+
+    wb2 = openpyxl.load_workbook(file)
+    ws2 = wb2["Sheet"]
+    emails = [
+        ws2.cell(row=row, column=5).value
+        for row in range(2, ws2.max_row + 1)
+        if ws2.cell(row=row, column=5).value
+    ]
+    assert emails == ["info@example.com"]
+
+
+def test_normalize_email_handles_mailto_formula():
+    assert (
+        uc._normalize_email('=HYPERLINK("mailto:Info@Example.com","Contact")')
+        == "info@example.com"
+    )
+
+
+def test_normalize_email_prefers_hyperlink_target():
+    assert (
+        uc._normalize_email("お問い合わせはこちら", "mailto:Sales@Example.com")
+        == "sales@example.com"
+    )
 
 
 def test_orders_blocked_on_consumer_context():
