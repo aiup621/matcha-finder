@@ -127,6 +127,29 @@ def test_process_sheet_deletes_error_rows(monkeypatch):
     assert deleted["indices"] == [1]
 
 
+def test_run_cleanup_accepts_numeric_truthy(monkeypatch):
+    service = FakeService([])
+
+    monkeypatch.setattr(api, "get_sheet_id", lambda service_obj, spreadsheet_id, title: 99)
+
+    captured = {}
+
+    def fake_delete_rows(service_obj, spreadsheet_id, sheet_id, row_indices):
+        captured["indices"] = list(row_indices)
+
+    monkeypatch.setattr(api, "delete_rows", fake_delete_rows)
+    monkeypatch.setenv("DELETE_ERROR_ROWS", "1")
+    monkeypatch.setenv("DRY_RUN", "0")
+    monkeypatch.setenv("CLEANUP_DUPLICATE_EMAIL_ROWS", "false")
+
+    state = api.ProcessState(spreadsheet_id="sheet", worksheet="Sheet", service=service)
+    state.error_rows.append(4)
+
+    api.run_cleanup(state)
+
+    assert captured["indices"] == [3]
+
+
 def test_error_row_deletion_adjusts_written_rows_for_cleanup(monkeypatch):
     rows = [
         ["data", "", "https://bad.example"],
