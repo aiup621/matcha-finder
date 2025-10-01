@@ -59,6 +59,25 @@ from sheets_cleanup import (
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
 
 
+def _env_flag(name: str, *, default: bool) -> bool:
+    """Return ``True`` when environment variable ``name`` is truthy."""
+
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+
+    text = raw.strip().lower()
+    if not text:
+        return default
+
+    if text in {"1", "true", "yes", "y", "on"}:
+        return True
+    if text in {"0", "false", "no", "n", "off"}:
+        return False
+
+    return default
+
+
 def _mark_row_status(service, spreadsheet_id, sheet_name, row_index, status="エラー"):
     """Update the status column for ``row_index`` with ``status``."""
 
@@ -555,8 +574,8 @@ def run_cleanup(state: ProcessState) -> None:
     written_rows = list(state.written_rows)
     error_rows = list(state.error_rows)
 
-    dry_run = os.getenv("DRY_RUN", "false").lower() == "true"
-    delete_errors = os.getenv("DELETE_ERROR_ROWS", "true").lower() == "true"
+    dry_run = _env_flag("DRY_RUN", default=False)
+    delete_errors = _env_flag("DELETE_ERROR_ROWS", default=True)
 
     if delete_errors:
         if error_rows:
@@ -581,7 +600,7 @@ def run_cleanup(state: ProcessState) -> None:
     else:
         logging.info("[CLEANUP] Skipped deletion of rows marked エラー (disabled).")
 
-    cleanup_enabled = os.getenv("CLEANUP_DUPLICATE_EMAIL_ROWS", "true").lower() == "true"
+    cleanup_enabled = _env_flag("CLEANUP_DUPLICATE_EMAIL_ROWS", default=True)
     email_col = os.getenv("EMAIL_COL_LETTER", "E")
     try:
         header_rows = int(os.getenv("HEADER_ROWS", "1"))
