@@ -105,6 +105,7 @@ def test_process_sheet_deletes_error_rows(monkeypatch):
     monkeypatch.setenv("DELETE_ERROR_ROWS", "true")
     monkeypatch.delenv("DRY_RUN", raising=False)
 
+    state = api.ProcessState(spreadsheet_id="spreadsheet", worksheet="Sheet")
     result = api.process_sheet(
         "spreadsheet",
         "Sheet",
@@ -113,7 +114,10 @@ def test_process_sheet_deletes_error_rows(monkeypatch):
         timeout=1.0,
         verify_ssl=True,
         credentials_file="creds.json",
+        state=state,
     )
+
+    api.run_cleanup(state)
 
     assert result == 2
     assert service.updates == [
@@ -171,6 +175,7 @@ def test_error_row_deletion_adjusts_written_rows_for_cleanup(monkeypatch):
     monkeypatch.setenv("DELETE_ERROR_ROWS", "true")
     monkeypatch.delenv("DRY_RUN", raising=False)
 
+    state = api.ProcessState(spreadsheet_id="spreadsheet", worksheet="Sheet")
     result = api.process_sheet(
         "spreadsheet",
         "Sheet",
@@ -179,7 +184,10 @@ def test_error_row_deletion_adjusts_written_rows_for_cleanup(monkeypatch):
         timeout=1.0,
         verify_ssl=True,
         credentials_file="creds.json",
+        state=state,
     )
+
+    api.run_cleanup(state)
 
     assert result == 2
     assert deleted["indices"] == [1]
