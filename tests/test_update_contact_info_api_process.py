@@ -27,6 +27,19 @@ class FakeValues:
 
         return FakeRequest(_execute)
 
+    def batchUpdate(self, spreadsheetId, body):
+        def _execute():
+            for item in body.get("data", []):
+                self._service.updates.append(
+                    {
+                        "range": item.get("range"),
+                        "values": item.get("values", []),
+                    }
+                )
+            return {}
+
+        return FakeRequest(_execute)
+
 
 class FakeSpreadsheets:
     def __init__(self, service):
@@ -73,7 +86,7 @@ def test_process_sheet_deletes_error_rows(monkeypatch):
     monkeypatch.setattr(
         api,
         "_fetch_page",
-        lambda url, timeout, verify: None if "bad" in url else "<html></html>",
+        lambda url, timeout, verify, **_: None if "bad" in url else "<html></html>",
     )
     monkeypatch.setattr(api, "find_instagram", lambda soup, url: "")
     monkeypatch.setattr(api, "crawl_site_for_email", lambda url, timeout, verify: "")
@@ -121,7 +134,7 @@ def test_error_row_deletion_adjusts_written_rows_for_cleanup(monkeypatch):
     monkeypatch.setattr(
         api,
         "_fetch_page",
-        lambda url, timeout, verify: None if "bad" in url else "<html></html>",
+        lambda url, timeout, verify, **_: None if "bad" in url else "<html></html>",
     )
     monkeypatch.setattr(api, "find_instagram", lambda soup, url: "")
     monkeypatch.setattr(api, "crawl_site_for_email", lambda url, timeout, verify: "")
