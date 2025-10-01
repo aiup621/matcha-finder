@@ -105,6 +105,56 @@ def test_process_sheet_deletes_error_rows(monkeypatch):
     monkeypatch.setenv("DELETE_ERROR_ROWS", "true")
     monkeypatch.delenv("DRY_RUN", raising=False)
 
+    state = api.ProcessState(spreadsheet_id="spreadsheet", worksheet="Sheet")
+    result = api.process_sheet(
+        "spreadsheet",
+        "Sheet",
+        start_row=2,
+        max_rows=2,
+        timeout=1.0,
+        verify_ssl=True,
+        credentials_file="creds.json",
+        state=state,
+    )
+
+    api.run_cleanup(state)
+
+    assert result == 2
+    assert service.updates == [
+        {"range": "Sheet!D2:G2", "values": [["", "", "", "エラー"]]},
+        {"range": "Sheet!D3:G3", "values": [["", "", "", "なし"]]},
+    ]
+    assert deleted["indices"] == [1]
+
+
+def test_process_sheet_without_state_runs_cleanup(monkeypatch):
+    rows = [
+        ["data", "", "https://bad.example"],
+        ["data", "", "https://ok.example"],
+    ]
+    service = FakeService(rows)
+
+    monkeypatch.setattr(api, "_build_sheet_service", lambda credentials_file: service)
+    monkeypatch.setattr(
+        api,
+        "_fetch_page",
+        lambda url, timeout, verify, **_: None if "bad" in url else "<html></html>",
+    )
+    monkeypatch.setattr(api, "find_instagram", lambda soup, url: "")
+    monkeypatch.setattr(api, "crawl_site_for_email", lambda url, timeout, verify: "")
+    monkeypatch.setattr(api, "find_contact_form", lambda soup, url, timeout, verify: "")
+    monkeypatch.setattr(api, "get_sheet_id", lambda service_obj, spreadsheet_id, title: 99)
+
+    deleted = {}
+
+    def fake_delete_rows(service_obj, spreadsheet_id, sheet_id, row_indices):
+        deleted["indices"] = list(row_indices)
+
+    monkeypatch.setattr(api, "delete_rows", fake_delete_rows)
+    monkeypatch.setenv("CLEANUP_DUPLICATE_EMAIL_ROWS", "false")
+    monkeypatch.setenv("DELETE_ERROR_ROWS", "true")
+    monkeypatch.delenv("DRY_RUN", raising=False)
+
     result = api.process_sheet(
         "spreadsheet",
         "Sheet",
@@ -171,6 +221,7 @@ def test_error_row_deletion_adjusts_written_rows_for_cleanup(monkeypatch):
     monkeypatch.setenv("DELETE_ERROR_ROWS", "true")
     monkeypatch.delenv("DRY_RUN", raising=False)
 
+    state = api.ProcessState(spreadsheet_id="spreadsheet", worksheet="Sheet")
     result = api.process_sheet(
         "spreadsheet",
         "Sheet",
@@ -179,7 +230,10 @@ def test_error_row_deletion_adjusts_written_rows_for_cleanup(monkeypatch):
         timeout=1.0,
         verify_ssl=True,
         credentials_file="creds.json",
+        state=state,
     )
+
+    api.run_cleanup(state)
 
     assert result == 2
     assert deleted["indices"] == [1]

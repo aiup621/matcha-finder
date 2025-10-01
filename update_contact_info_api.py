@@ -33,7 +33,8 @@ import json
 import logging
 import os
 import time
-from typing import List, Optional, Sequence
+from dataclasses import dataclass, field
+from typing import Any, List, Optional, Sequence
 from urllib.parse import urlparse
 
 import requests
@@ -58,21 +59,61 @@ from sheets_cleanup import (
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
 
 
-def _build_sheet_service(credentials_file: str) -> "Resource":
+def _mark_row_status(service, spreadsheet_id, sheet_name, row_index, status="エラー"):
+    """Update the status column for ``row_index`` with ``status``."""
+
+    try:
+        (
+            service.spreadsheets()
+            .values()
+            .update(
+                spreadsheetId=spreadsheet_id,
+                range=f"{sheet_name}!G{row_index}",
+                valueInputOption="RAW",
+                body={"values": [[status]]},
+            )
+            .execute()
+        )
+        print(f"[ROW-STATUS] row {row_index} -> {status}")
+    except Exception as e:  # pragma: no cover - network dependent
+        print(f"[ROW-STATUS-ERROR] failed to mark row {row_index}: {e!r}")
+
+
+@dataclass
+class ProcessState:
+    spreadsheet_id: str
+    worksheet: str
+    service: Any | None = None
+    written_rows: list[int] = field(default_factory=list)
+    error_rows: list[int] = field(default_factory=list)
+    updated: int = 0
+
+
+def _build_sheet_service(credentials_file: str):
     """Return an authorised Sheets API client."""
 
     if not os.path.exists(credentials_file):
-        raise SystemExit(f"Credentials file not found: {credentials_file}")
+        logging.error("Credentials file not found: %s", credentials_file)
+        return None
+
     try:
         with open(credentials_file, "r", encoding="utf-8") as f:
             json.load(f)
     except json.JSONDecodeError as exc:
-        raise SystemExit(f"Invalid service account JSON: {exc}")
+        logging.error("Invalid service account JSON: %s", exc)
+        return None
+    except OSError as exc:
+        logging.error("Unable to read credentials file %s: %s", credentials_file, exc)
+        return None
 
-    creds = service_account.Credentials.from_service_account_file(
-        credentials_file, scopes=SCOPES
-    )
-    return build("sheets", "v4", credentials=creds)
+    try:
+        creds = service_account.Credentials.from_service_account_file(
+            credentials_file, scopes=SCOPES
+        )
+        return build("sheets", "v4", credentials=creds)
+    except Exception as exc:  # pragma: no cover - network dependent
+        logging.error("Failed to build Sheets service: %s", exc)
+        return None
 
 
 def _fetch_page(
@@ -345,10 +386,32 @@ def process_sheet(
     timeout: float,
     verify_ssl: bool,
     credentials_file: str,
+    *,
+    state: Optional[ProcessState] = None,
 ) -> int:
     """Process rows on the sheet and return the number of updated rows."""
 
+    owns_state = state is None
+    if state is None:
+        state = ProcessState(spreadsheet_id=spreadsheet_id, worksheet=worksheet)
+    else:
+        state.spreadsheet_id = spreadsheet_id
+        state.worksheet = worksheet
+        state.written_rows.clear()
+        state.error_rows.clear()
+        state.updated = 0
+
     service = _build_sheet_service(credentials_file)
+    if service is None:
+        logging.error("Unable to obtain Sheets service; skipping processing.")
+        if owns_state:
+            try:
+                run_cleanup(state)
+            except Exception:  # pragma: no cover - defensive guard
+                logging.exception("[CLEANUP] Automatic cleanup failed")
+        return 0
+
+    state.service = service
     batch_size = 25
 
     def _flush_pending_updates(pending_updates: list[dict]) -> None:
@@ -397,73 +460,111 @@ def process_sheet(
     rows = result.get("values", [])
 
     updated = 0
-    written_rows: list[int] = []
-    error_rows: list[int] = []
     pending_updates: list[dict] = []
 
-    for offset, row in enumerate(rows):
-        row_index = start_row + offset
-        if not row or not row[0]:
-            break  # Stop when column A is blank
+    try:
+        for offset, row in enumerate(rows):
+            row_index = start_row + offset
+            if not row or not row[0]:
+                break  # Stop when column A is blank
 
-        url = row[2].strip() if len(row) > 2 and isinstance(row[2], str) else ""
-        insta = email = form = ""
-        status = ""
+            try:
+                url = row[2].strip() if len(row) > 2 and isinstance(row[2], str) else ""
+                insta = email = form = ""
+                status = ""
 
-        if not url:
-            status = "なし"
-        elif not url.lower().startswith(("http://", "https://")):
-            status = "エラー"
-        else:
-            content = _fetch_page(
-                url,
-                timeout=timeout,
-                verify=verify_ssl,
-                context=f"row {row_index}",
-            )
-            if content is None:
-                status = "エラー"
-            else:
-                soup = BeautifulSoup(content, "html.parser")
-                insta = find_instagram(soup, url) or ""
-                email = crawl_site_for_email(
-                    url, timeout=timeout, verify=verify_ssl
-                ) or ""
-                form = find_contact_form(
-                    soup, url, timeout=timeout, verify=verify_ssl
-                ) or ""
-                if not any([insta, email, form]):
+                if not url:
                     status = "なし"
+                elif not url.lower().startswith(("http://", "https://")):
+                    status = "エラー"
+                else:
+                    content = _fetch_page(
+                        url,
+                        timeout=timeout,
+                        verify=verify_ssl,
+                        context=f"row {row_index}",
+                    )
+                    if content is None:
+                        status = "エラー"
+                    else:
+                        try:
+                            soup = BeautifulSoup(content, "html.parser")
+                        except Exception as e_bs:  # pragma: no cover - parser issues
+                            print(f"[PARSE-WARN] html.parser failed: {e_bs!r}")
+                            soup = None
 
-        values = [[insta, email, form, status]]
-        update_range = f"{worksheet}!D{row_index}:G{row_index}"
-        pending_updates.append(
-            {
-                "range": update_range,
-                "majorDimension": "ROWS",
-                "values": values,
-            }
-        )
-        if len(pending_updates) >= batch_size:
-            _flush_pending_updates(pending_updates)
-        written_rows.append(row_index)
-        if status == "エラー":
-            error_rows.append(row_index)
-        logging.info(
-            "Processed row %s: IG=%s, email=%s, form=%s, status=%s",
-            row_index,
-            insta or "-",
-            email or "-",
-            form or "-",
-            status or "-",
-        )
-        updated += 1
-        if max_rows is not None and updated >= max_rows:
-            break
+                        insta = (
+                            find_instagram(soup, url) if soup is not None else ""
+                        ) or ""
+                        email = crawl_site_for_email(
+                            url, timeout=timeout, verify=verify_ssl
+                        ) or ""
+                        form = (
+                            find_contact_form(
+                                soup, url, timeout=timeout, verify=verify_ssl
+                            )
+                            if soup is not None
+                            else ""
+                        ) or ""
+                        if not any([insta, email, form]):
+                            status = "なし"
 
-    _flush_pending_updates(pending_updates)
+                values = [[insta, email, form, status]]
+                update_range = f"{worksheet}!D{row_index}:G{row_index}"
+                pending_updates.append(
+                    {
+                        "range": update_range,
+                        "majorDimension": "ROWS",
+                        "values": values,
+                    }
+                )
+                if len(pending_updates) >= batch_size:
+                    _flush_pending_updates(pending_updates)
+                state.written_rows.append(row_index)
+                if status == "エラー":
+                    state.error_rows.append(row_index)
+                logging.info(
+                    "Processed row %s: IG=%s, email=%s, form=%s, status=%s",
+                    row_index,
+                    insta or "-",
+                    email or "-",
+                    form or "-",
+                    status or "-",
+                )
+                updated += 1
+                if max_rows is not None and updated >= max_rows:
+                    break
+            except Exception as e:  # pragma: no cover - resilient row processing
+                print(f"[ROW-ERROR] row {row_index}: {e!r}")
+                if row_index not in state.error_rows:
+                    state.error_rows.append(row_index)
+                _mark_row_status(service, spreadsheet_id, worksheet, row_index, "エラー")
+                continue
+    finally:
+        _flush_pending_updates(pending_updates)
+        state.updated = updated
+        if owns_state:
+            try:
+                run_cleanup(state)
+            except Exception:  # pragma: no cover - defensive guard
+                logging.exception("[CLEANUP] Automatic cleanup failed")
 
     logging.info("Updated %s rows", updated)
+    return updated
+
+
+def run_cleanup(state: ProcessState) -> None:
+    """Execute cleanup steps based on the recorded ``state``."""
+
+    service = state.service
+    if service is None:
+        logging.info("[CLEANUP] Skipping cleanup because no Sheets service is available.")
+        return
+
+    spreadsheet_id = state.spreadsheet_id
+    worksheet = state.worksheet
+    written_rows = list(state.written_rows)
+    error_rows = list(state.error_rows)
 
     dry_run = os.getenv("DRY_RUN", "false").lower() == "true"
     delete_errors = os.getenv("DELETE_ERROR_ROWS", "true").lower() == "true"
@@ -542,7 +643,7 @@ def process_sheet(
         else:
             logging.info("[GLOBAL] Skipped global dedupe (written-only mode).")
 
-    return updated
+    state.written_rows = written_rows
 
 
 def run_global_dedupe(
@@ -614,15 +715,30 @@ def main() -> None:  # pragma: no cover - CLI entry point
     if not args.spreadsheet_id.strip():
         parser.error("--spreadsheet-id must not be empty")
 
-    process_sheet(
-        spreadsheet_id=args.spreadsheet_id,
-        worksheet=args.worksheet,
-        start_row=args.start_row,
-        max_rows=args.max_rows,
-        timeout=args.timeout,
-        verify_ssl=args.verify_ssl,
-        credentials_file=args.credentials,
-    )
+    state = ProcessState(spreadsheet_id=args.spreadsheet_id, worksheet=args.worksheet)
+    had_fatal = False
+    try:
+        process_sheet(
+            spreadsheet_id=args.spreadsheet_id,
+            worksheet=args.worksheet,
+            start_row=args.start_row,
+            max_rows=args.max_rows,
+            timeout=args.timeout,
+            verify_ssl=args.verify_ssl,
+            credentials_file=args.credentials,
+            state=state,
+        )
+    except Exception as e:  # pragma: no cover - defensive guard
+        had_fatal = True
+        print(f"[FATAL-WARN] process_sheet crashed but will continue to cleanup: {e!r}")
+    finally:
+        try:
+            run_cleanup(state)
+        except Exception as e2:  # pragma: no cover - defensive guard
+            print(f"[CLEANUP-WARN] cleanup failed: {e2!r}")
+
+    if had_fatal:
+        logging.warning("Processing completed with recoverable errors. See logs above.")
 
 
 if __name__ == "__main__":  # pragma: no cover - CLI entry point
