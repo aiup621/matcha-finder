@@ -75,7 +75,13 @@ def _build_sheet_service(credentials_file: str) -> "Resource":
     return build("sheets", "v4", credentials=creds)
 
 
-def _fetch_page(url: str, timeout: float, verify: bool) -> Optional[str]:
+def _fetch_page(
+    url: str,
+    timeout: float,
+    verify: bool,
+    *,
+    context: str | None = None,
+) -> Optional[str]:
     """Return the page content for ``url`` with retry handling."""
 
     headers = {
@@ -86,19 +92,41 @@ def _fetch_page(url: str, timeout: float, verify: bool) -> Optional[str]:
         )
     }
 
-    for _ in range(3):
+    prefix = f"{context}: " if context else ""
+
+    for attempt in range(3):
         try:
             res = requests.get(url, timeout=timeout, verify=verify, headers=headers)
             if res.status_code == 403:
+                logging.warning(
+                    "%sAttempt %s fetching %s returned HTTP 403; retrying",
+                    prefix,
+                    attempt + 1,
+                    url,
+                )
                 continue
             res.raise_for_status()
             return res.text
-        except requests.exceptions.SSLError:
+        except requests.exceptions.SSLError as exc:
             if verify:
                 verify = False
+                logging.warning(
+                    "%sSSL error on %s (retrying without verification): %s",
+                    prefix,
+                    url,
+                    exc,
+                )
                 continue
-        except requests.RequestException:
+        except requests.RequestException as exc:
+            logging.warning(
+                "%sAttempt %s fetching %s failed: %s",
+                prefix,
+                attempt + 1,
+                url,
+                exc,
+            )
             continue
+    logging.error("%sFailed to fetch %s after 3 attempts", prefix, url)
     return None
 
 
@@ -387,7 +415,12 @@ def process_sheet(
         elif not url.lower().startswith(("http://", "https://")):
             status = "エラー"
         else:
-            content = _fetch_page(url, timeout=timeout, verify=verify_ssl)
+            content = _fetch_page(
+                url,
+                timeout=timeout,
+                verify=verify_ssl,
+                context=f"row {row_index}",
+            )
             if content is None:
                 status = "エラー"
             else:
