@@ -32,6 +32,7 @@ import bisect
 import json
 import logging
 import os
+import time
 from typing import List, Optional, Sequence
 from urllib.parse import urlparse
 
@@ -320,6 +321,42 @@ def process_sheet(
     """Process rows on the sheet and return the number of updated rows."""
 
     service = _build_sheet_service(credentials_file)
+    batch_size = 25
+
+    def _flush_pending_updates(pending_updates: list[dict]) -> None:
+        if not pending_updates:
+            return
+
+        delay = 1.0
+        while True:
+            try:
+                (
+                    service.spreadsheets()
+                    .values()
+                    .batchUpdate(
+                        spreadsheetId=spreadsheet_id,
+                        body={
+                            "valueInputOption": "RAW",
+                            "data": pending_updates,
+                        },
+                    )
+                    .execute()
+                )
+            except HttpError as exc:  # pragma: no cover - network dependent
+                status = getattr(exc, "status_code", None) or getattr(exc.resp, "status", None)
+                if status == 429:
+                    logging.warning(
+                        "Rate limit exceeded while writing to %s; retrying in %.1fs",
+                        worksheet,
+                        delay,
+                    )
+                    time.sleep(delay)
+                    delay = min(delay * 2, 30.0)
+                    continue
+                raise
+            else:
+                break
+        pending_updates.clear()
 
     end_row = "" if max_rows is None else str(start_row + max_rows - 1)
     read_range = f"{worksheet}!A{start_row}:G{end_row}"
@@ -334,6 +371,8 @@ def process_sheet(
     updated = 0
     written_rows: list[int] = []
     error_rows: list[int] = []
+    pending_updates: list[dict] = []
+
     for offset, row in enumerate(rows):
         row_index = start_row + offset
         if not row or not row[0]:
@@ -365,17 +404,15 @@ def process_sheet(
 
         values = [[insta, email, form, status]]
         update_range = f"{worksheet}!D{row_index}:G{row_index}"
-        (
-            service.spreadsheets()
-            .values()
-            .update(
-                spreadsheetId=spreadsheet_id,
-                range=update_range,
-                valueInputOption="RAW",
-                body={"values": values},
-            )
-            .execute()
+        pending_updates.append(
+            {
+                "range": update_range,
+                "majorDimension": "ROWS",
+                "values": values,
+            }
         )
+        if len(pending_updates) >= batch_size:
+            _flush_pending_updates(pending_updates)
         written_rows.append(row_index)
         if status == "エラー":
             error_rows.append(row_index)
@@ -390,6 +427,8 @@ def process_sheet(
         updated += 1
         if max_rows is not None and updated >= max_rows:
             break
+
+    _flush_pending_updates(pending_updates)
 
     logging.info("Updated %s rows", updated)
 
