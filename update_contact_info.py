@@ -3,19 +3,15 @@ import html
 import logging
 import re
 from collections import deque
-from typing import List
 from urllib.parse import urljoin, urlparse
 
 import requests
 from bs4 import BeautifulSoup
 
-from sheets_cleanup import normalize_email
-
 EMAIL_RE = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
 REQUEST_TIMEOUT = 5
 EMAIL_BLOCKLIST = ("catering", "career")
 EMAIL_LOCALPART_BLOCKLIST = ("order", "orders")
-IGNORED_EMAIL_VALUES = {"", "-", "n/a", "na", "なし", "無し", "none"}
 
 
 def _is_blocked_email(candidate: str) -> bool:
@@ -136,36 +132,6 @@ def find_contact_form(soup, base_url, timeout=REQUEST_TIMEOUT, verify=True):
     return None
 
 
-def _delete_duplicate_processed_rows(ws, start_row: int, last_row: int) -> List[int]:
-    """Remove rows in the processed range that duplicate an earlier e-mail.
-
-    Only rows between ``start_row`` and ``last_row`` (inclusive) are eligible
-    for deletion.  The first occurrence of an e-mail address is preserved even
-    when it sits above ``start_row``.
-    """
-
-    if last_row < start_row:
-        return []
-
-    seen: dict[str, int] = {}
-    duplicates: List[int] = []
-
-    for row in range(1, ws.max_row + 1):
-        value = ws.cell(row=row, column=5).value
-        normalised = normalize_email(value)
-        if normalised in IGNORED_EMAIL_VALUES:
-            continue
-
-        first_seen = seen.setdefault(normalised, row)
-        if first_seen != row and start_row <= row <= last_row:
-            duplicates.append(row)
-
-    for row in sorted(set(duplicates), reverse=True):
-        ws.delete_rows(row)
-
-    return sorted(set(duplicates))
-
-
 def process_sheet(path, start_row=None, end_row=None, worksheet="抹茶営業リスト（カフェ）", debug=False):
     import io
     import urllib.parse
@@ -224,8 +190,6 @@ def process_sheet(path, start_row=None, end_row=None, worksheet="抹茶営業リ
 
     end_row = min(end_row, ws.max_row)
 
-    last_processed = None
-
     for row in range(start_row, end_row + 1):
         # A列が空なら以降は処理しない
         if not ws.cell(row=row, column=1).value:
@@ -258,16 +222,6 @@ def process_sheet(path, start_row=None, end_row=None, worksheet="抹茶営業リ
             "Row %s result - Insta: %s, Email: %s, Form: %s",
             row, bool(insta), bool(email), bool(form)
         )
-        last_processed = row
-
-    if last_processed is not None:
-        duplicates = _delete_duplicate_processed_rows(ws, start_row, last_processed)
-        if duplicates:
-            logging.info(
-                "Deleted %s duplicate email rows in processed range: %s",
-                len(duplicates),
-                duplicates,
-            )
     wb.save(save_path)
 
 
