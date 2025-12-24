@@ -264,7 +264,8 @@ def process_sheet(path, start_row=None, end_row=None, worksheet="抹茶営業リ
 
     # last_processed が None でも、開始行以降に1行でもスキャンしたら重複を削除する
     if last_scanned >= start_row:
-        target_last_row = last_processed if last_processed is not None else last_scanned
+        target_last_row = max(last_processed or 0, last_scanned)
+        target_last_row = min(target_last_row, end_row)
         duplicates = _delete_duplicate_processed_rows(ws, start_row, target_last_row)
         if duplicates:
             logging.info(
